@@ -10,7 +10,6 @@ AppName={#MyAppName}
 AppVersion={#AppVersion}
 AppVerName={#MyAppName} {#AppVersion}
 UninstallDisplayName={#MyAppName}
-UninstallDisplayVersion={#AppVersion}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 DefaultDirName={localappdata}\Programs\EscritorAutomatico
 DefaultGroupName={#MyAppName}

@@ -133,6 +133,12 @@ def main() -> int:
     print("  OK: rutas absolutas de recursos para PyInstaller")
 
     iss = (ROOT / "installer.iss").read_text(encoding="utf-8")
+    # Inno Setup 6 no define UninstallDisplayVersion. AppVersion es el ajuste
+    # compatible que se muestra como versión en la entrada de aplicaciones instaladas.
+    if re.search(r"(?im)^\s*UninstallDisplayVersion\s*=", iss):
+        fail("installer.iss usa la directiva no válida UninstallDisplayVersion; use AppVersion.")
+    if not re.search(r"(?im)^\s*AppVersion\s*=\s*\{#AppVersion\}\s*$", iss):
+        fail("installer.iss debe establecer AppVersion={#AppVersion} para mostrar la versión instalada.")
     for required_setting in ("PrivilegesRequired=lowest", "CloseApplications=yes", "SetupLogging=yes", "SetupMutex=EscritorAutomaticoSetupMutex"):
         if required_setting not in iss:
             fail(f"Falta un ajuste esperado del instalador: {required_setting}")
