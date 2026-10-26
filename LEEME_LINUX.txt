@@ -37,3 +37,6 @@ La aplicación puede comprobar GitHub Releases al iniciarse. Si hay una versión
 DESINSTALAR
 -----------
 Ejecuta ~/.local/opt/escritor-automatico/desinstalar.sh. La desinstalación elimina solo la instalación del usuario actual y el acceso del menú de aplicaciones.
+
+
+Para ejecutar desde el código fuente, instalar_dependencias_linux.sh requiere compilador C y cabeceras de Python para construir evdev. En Ubuntu/Debian: sudo apt-get install build-essential python3-dev. El instalador final empaquetado no requiere instalar Python ni esas herramientas.

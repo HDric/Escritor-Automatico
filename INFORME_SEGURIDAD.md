@@ -9,7 +9,7 @@ CAMBIOS APLICADOS EN V18
 1. Dependencias de la aplicación fijadas: python-docx==1.2.0; lxml==6.1.3; typing_extensions==4.16.0; websockets==17.3; Pillow==13.0.0; pywin32==312 (solo Windows). El instalador también fija pip==26.2.2, publicado el 20-10-2026 con Trusted Publishing habilitado.
 2. Instalación aislada en .venv, no en el Python global.
 3. Límite de 6 MiB para textos enviados al modo web.
-4. Instalación de ruedas binarias únicamente (--only-binary=:all:), evitando ejecución de compiladores/build backends de sdists durante la instalación.
+4. Instalación desde wheels para las dependencias habituales. Excepción controlada solo en Linux: `evdev==1.9.3` se construye desde el sdist oficial fijado con SHA-256, usando herramientas nativas de compilación en el runner de CI.
 5. Python mínimo 3.11. Pillow 13 dejó de soportar Python 3.10 y websockets 17 requiere Python moderno; el instalador valida la versión.
 6. Puente WebSocket: sigue enlazado a 127.0.0.1 y valida el origen exacto chrome-extension://gokleoeeegcjpahldnbmepeeokjafodl. Ahora rechaza tipos de mensajes no permitidos y estructuras/campos de tamaño excesivo; limita la frecuencia, tamaño y cola, y desactiva compresión.
 7. Vista previa: acepta solo data:image/jpeg;base64, valida base64, limita tamaño y número de píxeles, comprueba formato e integridad antes de decodificar.
@@ -51,3 +51,6 @@ RECOMENDACIONES PARA EL USUARIO
 ## Consideraciones multiplataforma v1.0.0
 
 En Linux se usa `pynput` versión 1.8.2 sin solicitar elevación de privilegios. La compatibilidad depende de X11/Xorg o de las restricciones del entorno Wayland/XWayland. No se recomienda ejecutar la aplicación como root para superar restricciones de entrada del escritorio. La extensión y su puente local mantienen el alcance y los límites de seguridad documentados previamente.
+
+
+Excepción de compilación Linux: `evdev==1.9.3` solo se distribuye en PyPI como archivo fuente. El workflow valida su SHA-256 (hash obtenido de la página de la release en PyPI) antes de compilarlo; el resto de dependencias sigue limitado a wheels. Las compilaciones reales deben revisarse en los registros de Actions.

@@ -12,7 +12,7 @@ La detección del sistema operativo ya está integrada en la aplicación. El flu
 3. Al terminar, descarga los artefactos `escritorio-automatico-windows-x64` y `escritorio-automatico-linux-x86_64`.
 4. Windows: ejecuta el `Setup.exe`. Linux: extrae el `.tar.gz`, cambia al directorio extraído y ejecuta `./instalar_escritor_automatico_linux.sh`.
 
-La compilación ocurre en los runners hospedados por GitHub. El paquete Linux se compila en Ubuntu, porque PyInstaller no es un compilador cruzado y se recomienda compilar cada plataforma en su sistema operativo correspondiente: https://pyinstaller.org/en/stable/.
+La compilación ocurre en los runners hospedados por GitHub. En Linux, la compilación instala `evdev==1.9.3` desde su distribución fuente con SHA-256 fijado, porque PyPI publica esa versión como sdist y no como wheel; por eso se instalan `build-essential` y `python3.12-dev`. El resto de las dependencias se limita a wheels. El paquete Linux se compila en Ubuntu, porque PyInstaller no es un compilador cruzado y se recomienda compilar cada plataforma en su sistema operativo correspondiente: https://pyinstaller.org/en/stable/.
 
 ## Compatibilidad Linux
 

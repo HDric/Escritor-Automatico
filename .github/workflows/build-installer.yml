@@ -106,7 +106,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y python3.12 python3.12-venv python3-tk tk-dev tcl-dev
+          sudo apt-get install -y python3.12 python3.12-venv python3-tk python3.12-dev build-essential tk-dev tcl-dev
           /usr/bin/python3.12 -c 'import tkinter, sys; print("Python", sys.version.split()[0], "Tk", tkinter.TkVersion)'
 
       - name: Configurar el actualizador y validar la versión
@@ -135,6 +135,9 @@ jobs:
           /usr/bin/python3.12 -m venv .build_venv
           .build_venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: --upgrade 'pip==26.2.2'
           .build_venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: -r requirements-build.txt
+          # evdev publica un sdist en Linux; se instala por separado, fijado y con SHA-256 verificado.
+          .build_venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir --no-build-isolation --no-deps --no-binary=:all: --require-hashes -r requirements-linux-source.txt
+          # El resto se limita a wheels. pynput ve evdev==1.9.3 ya instalado en el entorno.
           .build_venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: -r requirements.txt
           .build_venv/bin/python -m pip check
           .build_venv/bin/python -m pip freeze > build-environment-linux.txt
@@ -144,15 +147,16 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="$(/usr/bin/python3.12 -c 'import json; print(json.load(open("version.json", encoding="utf-8"))["version"])')"
+          # Las entradas --add-data son absolutas porque PyInstaller resuelve las rutas respecto al .spec.
           .build_venv/bin/python -m PyInstaller \
             --noconfirm --clean --windowed --onedir --contents-directory . \
             --name EscritorAutomatico --distpath dist --workpath build/pyinstaller-linux --specpath build/spec-linux \
-            --add-data 'web_extension:web_extension' \
-            --add-data 'LEEME.txt:.' \
-            --add-data 'INFORME_SEGURIDAD.md:.' \
-            --add-data 'version.json:.' \
-            --add-data 'update_config.json:.' \
-            --collect-data docx --collect-all PIL --collect-all pynput --collect-all Xlib \
+            --add-data "$GITHUB_WORKSPACE/web_extension:web_extension" \
+            --add-data "$GITHUB_WORKSPACE/LEEME.txt:." \
+            --add-data "$GITHUB_WORKSPACE/INFORME_SEGURIDAD.md:." \
+            --add-data "$GITHUB_WORKSPACE/version.json:." \
+            --add-data "$GITHUB_WORKSPACE/update_config.json:." \
+            --collect-data docx --collect-all PIL --collect-all pynput --collect-all evdev --collect-all Xlib \
             --hidden-import websockets.sync.server --hidden-import docx.oxml.ns \
             --exclude-module win32com --exclude-module pythoncom --exclude-module pywintypes \
             escritor_automatico.py

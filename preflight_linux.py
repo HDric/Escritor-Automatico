@@ -5,7 +5,7 @@ import base64, hashlib, json, re, shutil, subprocess, sys
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 EXPECTED_EXTENSION_ID = "gokleoeeegcjpahldnbmepeeokjafodl"
-REQUIRED = ["escritor_automatico.py", "updater.py", "version.json", "update_config.json", "requirements.txt", "requirements-build.txt", "web_extension/manifest.json",
+REQUIRED = ["escritor_automatico.py", "updater.py", "version.json", "update_config.json", "requirements.txt", "requirements-build.txt", "requirements-linux-source.txt", "web_extension/manifest.json",
             "web_extension/service_worker.js", "web_extension/content.js", "web_extension/popup.html", "web_extension/popup.js",
             "LEEME.txt", "LEEME_LINUX.txt", "POST_INSTALACION_LINUX.txt", "instalar_escritor_automatico_linux.sh"]
 def fail(msg: str) -> None:
@@ -40,8 +40,25 @@ def main() -> int:
     if "_check_for_updates" not in source or "Comprobar actualizaciones automáticamente al iniciar" not in source:
         fail("No se encontró la interfaz de actualización opcional.")
     requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+    source_requirements = (ROOT / "requirements-linux-source.txt").read_text(encoding="utf-8")
+    if not re.search(r"(?im)^\s*evdev==1\.9\.3\s*\\\s*$", source_requirements) or "--hash=sha256:2c140e01ac8437758fa23fe5c871397412461f42d421aa20241dc8fe8cfccbc9" not in source_requirements:
+        fail("evdev debe estar fijado a 1.9.3 con el SHA-256 verificado de PyPI.")
     for package, version in {"python-docx":"1.2.0", "lxml":"6.1.3", "typing_extensions":"4.16.0", "websockets":"17.3", "Pillow":"13.0.0", "pynput":"1.8.2"}.items():
         if not re.search(rf"(?im)^\s*{re.escape(package)}=={re.escape(version)}(?:\s*;.*)?\s*$", requirements): fail(f"{package} no está fijado a {version}")
+    workflow_path = ROOT / ".github/workflows/build-installer.yml"
+    if not workflow_path.is_file():
+        fail("Falta .github/workflows/build-installer.yml.")
+    workflow_source = workflow_path.read_text(encoding="utf-8")
+    for required_fragment in (
+        "build-essential",
+        "python3.12-dev",
+        "--no-build-isolation --no-deps --no-binary=:all: --require-hashes -r requirements-linux-source.txt",
+        "$GITHUB_WORKSPACE/web_extension:web_extension",
+        "--collect-all evdev",
+    ):
+        if required_fragment not in workflow_source:
+            fail(f"El workflow Linux no contiene la corrección esperada: {required_fragment}")
+    print("OK: flujo CI corrige las dependencias nativas y las rutas de recursos")
     node = shutil.which("node")
     if node:
         for js_file in sorted((ROOT / "web_extension").glob("*.js")):

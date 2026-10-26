@@ -1,0 +1,4 @@
+# Dependencia Linux que actualmente se distribuye como sdist, no como wheel.
+# El hash corresponde al archivo evdev-1.9.3.tar.gz publicado en PyPI.
+evdev==1.9.3 \
+    --hash=sha256:2c140e01ac8437758fa23fe5c871397412461f42d421aa20241dc8fe8cfccbc9

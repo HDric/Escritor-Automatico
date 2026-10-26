@@ -100,7 +100,7 @@ echo Dependencias instaladas; pip check ha terminado correctamente.
 
  echo.
 echo [5/6] Empaquetando el programa con PyInstaller...
-"%PY%" -m PyInstaller --noconfirm --clean --windowed --onedir --contents-directory . --name EscritorAutomatico --distpath dist --workpath build\pyinstaller --specpath build\spec --add-data "web_extension;web_extension" --add-data "LEEME.txt;." --add-data "INFORME_SEGURIDAD.md;." --add-data "version.json;." --add-data "update_config.json;." --collect-data docx --collect-all PIL --hidden-import pythoncom --hidden-import pywintypes --hidden-import win32com --hidden-import win32com.client --hidden-import websockets.sync.server --hidden-import docx.oxml.ns escritor_automatico.py >>"%LOG%" 2>&1
+"%PY%" -m PyInstaller --noconfirm --clean --windowed --onedir --contents-directory . --name EscritorAutomatico --distpath dist --workpath build\pyinstaller --specpath build\spec --add-data "%CD%\web_extension;web_extension" --add-data "%CD%\LEEME.txt;." --add-data "%CD%\INFORME_SEGURIDAD.md;." --add-data "%CD%\version.json;." --add-data "%CD%\update_config.json;." --collect-data docx --collect-all PIL --hidden-import pythoncom --hidden-import pywintypes --hidden-import win32com --hidden-import win32com.client --hidden-import websockets.sync.server --hidden-import docx.oxml.ns escritor_automatico.py >>"%LOG%" 2>&1
 if errorlevel 1 goto :error
 if not exist "dist\EscritorAutomatico\EscritorAutomatico.exe" (
   echo ERROR: PyInstaller no genero EscritorAutomatico.exe.

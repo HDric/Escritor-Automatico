@@ -1,4 +1,4 @@
-# Toolchain de compilación para Windows x64 + Python 3.12.
+# Toolchain de compilación para Windows x64 y Linux x86_64 + Python 3.12.
 # Versiones comprobadas en PyPI el 22-10-2026. Dependencias explícitas para evitar
 # que pip resuelva versiones transitivas diferentes en cada compilación.
 altgraph==0.17.5

@@ -70,17 +70,21 @@ Las dependencias de la aplicación están en `requirements.txt`; las herramienta
 
 ### Linux
 
-1. Instala Python, Tkinter y herramientas de entorno virtual desde el gestor de paquetes de tu distribución.
-2. Crea un entorno virtual e instala dependencias:
+1. Instala Python, Tkinter, el compilador C y las cabeceras para la versión de Python que usarás. En Ubuntu/Debian puedes ejecutar:
 
    ```bash
-   python3 -m venv .venv
-   . .venv/bin/activate
-   python -m pip install --only-binary=:all: -r requirements.txt
-   python escritor_automatico.py
+   sudo apt-get install python3 python3-venv python3-tk build-essential python3-dev
    ```
 
-   Si tu distribución no incluye Tkinter o las bibliotecas de entrada, instálalas con el gestor de paquetes del sistema. Consulta `LEEME_LINUX.txt`.
+2. Desde la raíz del proyecto, ejecuta el script que prepara el entorno virtual y sus dependencias:
+
+   ```bash
+   chmod +x instalar_dependencias_linux.sh iniciar_linux.sh
+   ./instalar_dependencias_linux.sh
+   ./iniciar_linux.sh
+   ```
+
+   El script compila `evdev==1.9.3` desde su archivo fuente fijado por SHA-256; las demás dependencias se instalan exclusivamente desde wheels. El paquete Linux de la Release ya incluye Python y no requiere realizar estos pasos.
 
 ## Instalar la extensión
 
@@ -113,3 +117,6 @@ Este proyecto incluye una plantilla de licencia MIT en `LICENSE`. **Antes de pub
 ## Contribuciones
 
 Las contribuciones pueden proponerse mediante issues y pull requests. Incluye pasos para reproducir errores, sistema operativo, versión de Python y registros redactados para no exponer datos privados.
+
+
+Nota de compilación Linux: `evdev` requiere compilar su extensión nativa. El flujo de GitHub Actions instala `build-essential` y `python3.12-dev`, compila `evdev==1.9.3` con SHA-256 fijado y descarga el resto de dependencias solo como wheels.

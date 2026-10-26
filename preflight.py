@@ -20,6 +20,7 @@ REQUIRED_FILES = (
     "update_config.json",
     "requirements.txt",
     "requirements-build.txt",
+    "requirements-linux-source.txt",
     "installer.iss",
     "POST_INSTALACION.txt",
     "LEEME.txt",
@@ -102,6 +103,9 @@ def main() -> int:
             fail(f"La dependencia {package} no está fijada a {version} en requirements.txt.")
     if not re.search(r'(?im)^\s*pynput==1\.8\.2\s*;\s*sys_platform\s*==\s*"linux"\s*$', requirements):
         fail("pynput debe estar fijado a 1.8.2 y limitado a Linux.")
+    linux_source_requirements = (ROOT / "requirements-linux-source.txt").read_text(encoding="utf-8")
+    if "evdev==1.9.3" not in linux_source_requirements or "--hash=sha256:2c140e01ac8437758fa23fe5c871397412461f42d421aa20241dc8fe8cfccbc9" not in linux_source_requirements:
+        fail("La dependencia de compilación Linux evdev no tiene la versión y el hash esperados.")
     if "IS_LINUX" not in source or "create_keyboard_backend" not in source or "Sistema detectado automáticamente" not in source:
         fail("No se encontró la selección automática Windows/Linux en el programa.")
     print("  OK: dependencias fijadas y detección de sistema operativo")
@@ -115,6 +119,18 @@ def main() -> int:
         if not re.search(rf"(?im)^\s*{re.escape(package)}=={re.escape(version)}\s*$", build_requirements):
             fail(f"La herramienta de compilación {package} no está fijada a {version}.")
     print("  OK: herramientas y dependencias de compilación fijadas")
+
+    build_script = (ROOT / "CREAR_INSTALADOR.bat").read_text(encoding="utf-8")
+    for required_data_arg in (
+        r'%CD%\web_extension;web_extension',
+        r'%CD%\LEEME.txt;.',
+        r'%CD%\INFORME_SEGURIDAD.md;.',
+        r'%CD%\version.json;.',
+        r'%CD%\update_config.json;.',
+    ):
+        if required_data_arg not in build_script:
+            fail(f"PyInstaller debe usar rutas de entrada absolutas con --add-data: falta {required_data_arg}.")
+    print("  OK: rutas absolutas de recursos para PyInstaller")
 
     iss = (ROOT / "installer.iss").read_text(encoding="utf-8")
     for required_setting in ("PrivilegesRequired=lowest", "CloseApplications=yes", "SetupLogging=yes", "SetupMutex=EscritorAutomaticoSetupMutex"):

@@ -36,3 +36,6 @@ La dependencia `pynput==1.8.2` se instala solamente en Linux. Se recomienda X11/
 
 - PyInstaller indica que no es un compilador cruzado; se compila en el sistema operativo de destino: https://pyinstaller.org/en/stable/
 - `pynput` documenta sus requisitos para Linux y las limitaciones con X11/uinput y Wayland/XWayland: https://pynput.readthedocs.io/en/latest/limitations.html
+
+
+Corrección de compilación v1.0.0: se añadió `requirements-linux-source.txt` con evdev 1.9.3 y su SHA-256 oficial de PyPI. La compilación Linux construye esa dependencia desde fuente usando `build-essential` y las cabeceras de Python, antes de instalar el resto de dependencias exclusivamente desde wheels. Los argumentos `--add-data` de PyInstaller ahora usan rutas absolutas de entrada para que sigan encontrándose aunque el archivo `.spec` se genere en `build/spec` o `build/spec-linux`.
