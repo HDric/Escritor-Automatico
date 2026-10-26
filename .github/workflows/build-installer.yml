@@ -1,0 +1,233 @@
+name: Construir paquetes Windows y Linux de Escritor Automático
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-escritor-automatico-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows-installer:
+    name: Compilar instalador de Windows x64
+    runs-on: windows-2022
+    timeout-minutes: 60
+
+    steps:
+      - name: Descargar el código del repositorio
+        uses: actions/checkout@v7
+
+      - name: Preparar Python 3.12 x64
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          architecture: x64
+          check-latest: true
+
+      - name: Configurar el actualizador y validar la versión
+        shell: pwsh
+        run: |
+          $version = (Get-Content version.json -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "La etiqueta $env:GITHUB_REF_NAME no coincide con version.json (v$version)."
+          }
+          py -3.12 -c "import json, os; json.dump({'repository': os.environ['GITHUB_REPOSITORY']}, open('update_config.json', 'w', encoding='utf-8'), indent=2)"
+          Write-Host "Repositorio de actualizaciones: $env:GITHUB_REPOSITORY"
+          Write-Host "Versión de la aplicación: $version"
+
+      - name: Instalar Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Verificar herramientas de compilación
+        shell: cmd
+        run: |
+          py -3.12 --version
+          if errorlevel 1 exit /b 1
+          where ISCC.exe
+          if errorlevel 1 if not exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" exit /b 1
+
+      - name: Probar lógica del actualizador
+        shell: cmd
+        run: py -3.12 -m unittest discover -s tests -v
+
+      - name: Construir Escritor Automático y Setup.exe
+        shell: cmd
+        env:
+          CI: 'true'
+        run: call CREAR_INSTALADOR.bat
+
+      - name: Verificar el instalador y calcular SHA-256
+        shell: pwsh
+        run: |
+          $version = (Get-Content version.json -Raw | ConvertFrom-Json).version
+          $fileName = "EscritorAutomatico-Setup-v$version.exe"
+          $setup = Join-Path $env:GITHUB_WORKSPACE "dist-installer\$fileName"
+          if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) {
+            throw "No se encontró el instalador esperado: $setup"
+          }
+          $hash = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $fileName" | Set-Content -Encoding ascii (Join-Path $env:GITHUB_WORKSPACE 'dist-installer\SHA256SUMS.txt')
+          Write-Host "SHA-256: $hash"
+          if ((Get-Item -LiteralPath $setup).Length -lt 1000000) {
+            throw 'El instalador es inusualmente pequeño. Se cancela la publicación del artefacto.'
+          }
+
+      - name: Subir instalador de Windows como artefacto
+        uses: actions/upload-artifact@v7
+        with:
+          name: escritorio-automatico-windows-x64
+          path: |
+            dist-installer/EscritorAutomatico-Setup-v*.exe
+            dist-installer/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  build-linux-portable:
+    name: Compilar paquete Linux x86_64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Descargar el código del repositorio
+        uses: actions/checkout@v7
+
+      - name: Preparar Python del sistema y Tkinter
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y python3.12 python3.12-venv python3-tk tk-dev tcl-dev
+          /usr/bin/python3.12 -c 'import tkinter, sys; print("Python", sys.version.split()[0], "Tk", tkinter.TkVersion)'
+
+      - name: Configurar el actualizador y validar la versión
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(/usr/bin/python3.12 -c 'import json; print(json.load(open("version.json", encoding="utf-8"))["version"])')"
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "v$VERSION" ]]; then
+            echo "La etiqueta $GITHUB_REF_NAME no coincide con version.json (v$VERSION)." >&2
+            exit 1
+          fi
+          /usr/bin/python3.12 -c 'import json, os; json.dump({"repository": os.environ["GITHUB_REPOSITORY"]}, open("update_config.json", "w", encoding="utf-8"), indent=2)'
+          echo "Repositorio de actualizaciones: $GITHUB_REPOSITORY"
+          echo "Versión de la aplicación: $VERSION"
+
+      - name: Probar lógica del actualizador
+        run: /usr/bin/python3.12 -m unittest discover -s tests -v
+
+      - name: Verificar la configuración Linux
+        run: /usr/bin/python3.12 preflight_linux.py
+
+      - name: Crear entorno y comprobar dependencias
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/python3.12 -m venv .build_venv
+          .build_venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: --upgrade 'pip==26.2.2'
+          .build_venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: -r requirements-build.txt
+          .build_venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: -r requirements.txt
+          .build_venv/bin/python -m pip check
+          .build_venv/bin/python -m pip freeze > build-environment-linux.txt
+
+      - name: Empaquetar aplicación Linux con PyInstaller
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(/usr/bin/python3.12 -c 'import json; print(json.load(open("version.json", encoding="utf-8"))["version"])')"
+          .build_venv/bin/python -m PyInstaller \
+            --noconfirm --clean --windowed --onedir --contents-directory . \
+            --name EscritorAutomatico --distpath dist --workpath build/pyinstaller-linux --specpath build/spec-linux \
+            --add-data 'web_extension:web_extension' \
+            --add-data 'LEEME.txt:.' \
+            --add-data 'INFORME_SEGURIDAD.md:.' \
+            --add-data 'version.json:.' \
+            --add-data 'update_config.json:.' \
+            --collect-data docx --collect-all PIL --collect-all pynput --collect-all Xlib \
+            --hidden-import websockets.sync.server --hidden-import docx.oxml.ns \
+            --exclude-module win32com --exclude-module pythoncom --exclude-module pywintypes \
+            escritor_automatico.py
+          test -x dist/EscritorAutomatico/EscritorAutomatico
+          test -f dist/EscritorAutomatico/web_extension/manifest.json
+          test -f dist/EscritorAutomatico/update_config.json
+          cp POST_INSTALACION_LINUX.txt dist/EscritorAutomatico/POST_INSTALACION.txt
+          cp LEEME_LINUX.txt dist/EscritorAutomatico/LEEME_LINUX.txt
+          mkdir -p dist-linux/package
+          cp -aL dist/EscritorAutomatico dist-linux/package/
+          cp instalar_escritor_automatico_linux.sh dist-linux/package/
+          chmod +x dist-linux/package/instalar_escritor_automatico_linux.sh
+          tar -czf "dist-linux/EscritorAutomatico-v${VERSION}-linux-x86_64.tar.gz" -C dist-linux/package .
+          sha256sum "dist-linux/EscritorAutomatico-v${VERSION}-linux-x86_64.tar.gz" > dist-linux/SHA256SUMS-LINUX.txt
+
+      - name: Subir paquete Linux como artefacto
+        uses: actions/upload-artifact@v7
+        with:
+          name: escritorio-automatico-linux-x86_64
+          path: |
+            dist-linux/EscritorAutomatico-v*-linux-x86_64.tar.gz
+            dist-linux/SHA256SUMS-LINUX.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-release:
+    name: Publicar GitHub Release con instaladores
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - build-windows-installer
+      - build-linux-portable
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Descargar el código etiquetado
+        uses: actions/checkout@v7
+
+      - name: Descargar instalador de Windows
+        uses: actions/download-artifact@v7
+        with:
+          name: escritorio-automatico-windows-x64
+          path: release-assets/windows
+
+      - name: Descargar paquete Linux
+        uses: actions/download-artifact@v7
+        with:
+          name: escritorio-automatico-linux-x86_64
+          path: release-assets/linux
+
+      - name: Preparar archivos de la Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(python3 -c 'import json; print(json.load(open("version.json", encoding="utf-8"))["version"])')"
+          [[ "$GITHUB_REF_NAME" == "v$VERSION" ]] || { echo "Etiqueta y version.json no coinciden" >&2; exit 1; }
+          mkdir -p release-assets/final
+          cp "release-assets/windows/EscritorAutomatico-Setup-v${VERSION}.exe" release-assets/final/
+          cp "release-assets/linux/EscritorAutomatico-v${VERSION}-linux-x86_64.tar.gz" release-assets/final/
+          (cd release-assets/final && sha256sum "EscritorAutomatico-Setup-v${VERSION}.exe" "EscritorAutomatico-v${VERSION}-linux-x86_64.tar.gz" > SHA256SUMS.txt)
+          cat release-assets/final/SHA256SUMS.txt
+
+      - name: Crear Release y adjuntar instaladores verificados
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          assets=(release-assets/final/EscritorAutomatico-Setup-v*.exe release-assets/final/EscritorAutomatico-v*-linux-x86_64.tar.gz release-assets/final/SHA256SUMS.txt)
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+              --verify-tag \
+              --title "Escritor Automático $GITHUB_REF_NAME" \
+              --generate-notes
+          fi

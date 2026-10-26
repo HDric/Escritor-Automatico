@@ -1,0 +1,35 @@
+PROYECTO DE INSTALADOR OPTIMIZADO — ESCRITOR AUTOMÁTICO v1.0.0
+=========================================================
+
+Destino: Windows x64 y Linux x86_64; paquete específico por sistema operativo.
+Compilador: Python 3.12 x64 + PyInstaller 6.22.3 + Inno Setup 6/7.
+Dependencias runtime: requirements.txt.
+Dependencias de compilación: requirements-build.txt.
+Windows: dist-installer\EscritorAutomatico-Setup-v1.0.0.exe. Linux: artefacto EscritorAutomatico-v1.0.0-linux-x86_64.tar.gz generado por GitHub Actions.
+
+VALIDACIONES REALIZADAS EN EL ENTORNO DE PREPARACIÓN
+----------------------------------------------------
+- Sintaxis Python del programa principal y preflight.
+- Manifiesto JSON de la extensión y Manifest V3.
+- Identificador de extensión derivado de la clave pública; coincide con el puente Python.
+- Sintaxis de los archivos JavaScript usando Node.js.
+- Dependencias del runtime fijadas y script Inno Setup revisado.
+- Corregida una entrada repetida de POST_INSTALACION.txt en la versión anterior.
+- Integridad del ZIP del proyecto.
+
+VALIDACIONES PENDIENTES EN WINDOWS
+----------------------------------
+No se ha compilado ni ejecutado el Setup.exe desde este entorno. La compilación con PyInstaller y la ejecución de ISCC.exe deben realizarse en Windows 10/11 x64. Antes de distribuir, instalar en un usuario de prueba, abrir el programa desde Inicio, comprobar la carpeta web_extension, cargar la extensión manualmente y probar una desinstalación.
+
+SEGURIDAD
+---------
+Se usan versiones de dependencias fijadas y solo wheels binarios. El proyecto todavía no verifica hashes SHA-256 de cada wheel con --require-hashes. El script genera un hash SHA-256 del Setup final, que verifica su integridad después de la compilación, no la procedencia de cada dependencia.
+
+
+DETECCIÓN MULTIPLATAFORMA v1.0.0
+-----------------------------
+- La aplicación detecta Windows o Linux mediante la información del sistema y muestra una etiqueta en la cabecera.
+- Windows mantiene el backend SendInput y las funciones Win32/COM.
+- Linux usa pynput para escritura en primer plano, permite el puente web local y limita los modos Win32/COM.
+- Se agregó un flujo Linux en GitHub Actions separado del flujo Setup.exe.
+- La validación de código estática y una prueba controlada del backend lógico de teclado Linux pasaron; falta probar entrada real en una sesión X11/Xorg y revisar las limitaciones de Wayland en un equipo Linux.

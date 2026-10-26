@@ -1,0 +1,10 @@
+# Toolchain de compilación para Windows x64 + Python 3.12.
+# Versiones comprobadas en PyPI el 22-10-2026. Dependencias explícitas para evitar
+# que pip resuelva versiones transitivas diferentes en cada compilación.
+altgraph==0.17.5
+packaging==26.3
+pefile==2024.8.26
+pyinstaller-hooks-contrib==2026.9
+pyinstaller==6.22.3
+pywin32-ctypes==0.2.3
+setuptools==84.2.1

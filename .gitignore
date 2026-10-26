@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Entornos virtuales y secretos locales
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.*
+
+# Construcción y compilación
+build/
+dist/
+dist-installer/
+dist-linux/
+.spec
+*.spec
+*.exe
+*.msi
+*.dll
+*.zip
+*.tar.gz
+*.sha256
+SHA256SUMS*
+
+# Logs y diagnóstico local
+*.log
+diagnostico.txt
+error_inicio.txt
+BUILD_INSTALADOR.log
+build-environment*.txt
+
+# Editores y sistema operativo
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Escritor automático — puente web (Chrome, Edge y Brave)",
+  "version": "1.3.0",
+  "description": "Extensión compatible con navegadores Chromium. Conecta con Escritor automático para detectar campos web y escribir progresivamente con escaneo y memoria optimizados.",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "service_worker.js"
+  },
+  "action": {
+    "default_title": "Escritor automático — sincronizar pestañas",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_about_blank": true
+    }
+  ],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAz+idtgfRCEyHP/viurdcunVvsb9Dgt8C40DWYIjAu6HOK/NmtTcU0X8Y9OJ8iAT/CMKkDCW4lA6YVft7I/HE+tHpRieDbmhGpYlXbtbBnVvySzOt41wA0JJme/2SE7lsXxjEhY64fOg5vMHhK40dXuZIjNxAQF6XZVPrX6vDVWYuHnf20o9Xz/55y/wGIV5Yy410WdXbnVM67soJpjJw6TUIvJeQRMlayhG61yP2lqjji2xW5R1RxusIXwvIcXSJRW4XU3cgrOX81rEFmnJWDdN1DN0khYDYV/ROHXzB2xz4V13cab2OGeGf71JW0t6CtLnaehi8G1PjHrFluX1bewIDAQAB",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self';"
+  }
+}

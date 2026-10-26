@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Escritor automático</title>
+  <style>
+    body { width: 300px; margin: 0; padding: 16px; font: 13px/1.45 "Segoe UI", sans-serif; color: #1f2937; background: #f7f9fc; }
+    h1 { margin: 0 0 6px; font-size: 16px; }
+    p { margin: 0 0 12px; color: #586579; }
+    button { width: 100%; border: 0; border-radius: 8px; padding: 10px 12px; cursor: pointer; font-weight: 600; background: #2563eb; color: white; }
+    button:hover { background: #1d4ed8; }
+    #status { margin-top: 12px; border-radius: 8px; background: white; border: 1px solid #dce3ee; padding: 10px; }
+    .small { font-size: 11px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Escritor automático</h1>
+  <p>Compatible con Brave, Chrome y Edge. Conecta la extensión con Escritor automático y actualiza las pestañas detectadas.</p>
+  <button id="refresh">Sincronizar pestañas</button>
+  <div id="status">Intentando conectar con Escritor automático en este equipo…</div>
+  <p class="small">Abre primero Escritor automático y entra al modo web. Si no conecta, comprueba que el programa siga abierto y vuelve a cargar esta extensión.</p>
+  <script src="popup.js"></script>
+</body>
+</html>

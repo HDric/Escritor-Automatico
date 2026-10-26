@@ -1,0 +1,58 @@
+ESCRITOR AUTOMÁTICO v1.0.0 — DETECCIÓN WINDOWS/LINUX Y ACTUALIZACIONES
+=====================================================
+
+NOVEDAD PRINCIPAL
+-----------------
+La aplicación detecta automáticamente el sistema operativo al iniciarse y muestra el nombre del sistema en la cabecera. Selecciona un backend de teclado específico para Windows o Linux.
+
+PAQUETES PARA USUARIOS FINALES
+------------------------------
+- Windows x64: EscritorAutomatico-Setup-v1.0.0.exe, generado por el flujo de GitHub Actions. El usuario no necesita instalar Python.
+- Linux x86_64: EscritorAutomatico-v1.0.0-linux-x86_64.tar.gz, generado en Ubuntu. El paquete incluye el intérprete y dependencias de Python; no requiere que el usuario instale Python.
+
+Para obtener artefactos de prueba, consulta OBTENER_SETUP_EN_NUBE.md y ejecuta el flujo de GitHub Actions. Para publicar una versión actualizable debes cambiar version.json, crear una etiqueta vX.Y.Z igual a esa versión y enviarla a GitHub; el flujo publica una GitHub Release con ambos instaladores y SHA256SUMS.txt.
+
+FUNCIONES COMUNES
+-----------------
+- Editor de texto con formato básico, negrita, cursiva, subrayado, color, viñetas y numeración.
+- Importación de DOCX, HTML y TXT; exportación a HTML.
+- Escritura carácter por carácter con velocidad y cuenta regresiva ajustables.
+- Pausar/reanudar y detener mediante botones; F8/F9 como atajos cuando el sistema permite capturarlos.
+- Extensión para Brave, Chrome y Edge que detecta pestañas y campos web compatibles.
+- Vista previa de la página web con campos detectados.
+- Actualizador opcional: busca nuevas GitHub Releases, muestra las notas y pide confirmación antes de descargar y ejecutar una actualización. Ver ACTUALIZACIONES.md.
+
+WINDOWS
+-------
+Están disponibles la ventana activa, automatización de Microsoft Word de escritorio con estilos reconocidos, pegado HTML enriquecido y el modo experimental de ventana Win32 en segundo plano. El instalador tradicional usa Inno Setup y no solicita permisos de administrador.
+
+LINUX
+-----
+Los modos visibles son “Ventana activa” y “Página web”. La escritura de teclado usa pynput, sin pedir permisos de root. La compatibilidad más amplia se espera en X11/Xorg. Wayland puede limitar la inyección de teclas por motivos de seguridad, especialmente en aplicaciones nativas; XWayland ofrece compatibilidad parcial.
+
+La automatización de Microsoft Word vía COM, el portapapeles HTML Win32 y la escritura Win32 en segundo plano son exclusivos de Windows. En Linux se puede escribir en LibreOffice Writer o en otros campos que reciban entrada de teclado. Google Docs requiere el navegador en primer plano y que se haga clic en el punto de inserción al terminar la cuenta regresiva.
+
+EXTENSIÓN WEB
+-------------
+1. Abre la página de extensiones del navegador:
+   Brave: brave://extensions/
+   Chrome: chrome://extensions/
+   Edge: edge://extensions/
+2. Activa el modo de desarrollador y pulsa “Cargar descomprimida”.
+3. Selecciona la carpeta web_extension que viene junto al programa.
+4. Deja abierto Escritor Automático y pulsa “Actualizar páginas”.
+5. Conserva la carpeta de la extensión en su ubicación. No edites el campo “key” del manifiesto: fija el identificador que reconoce el puente local.
+
+La extensión requiere permisos amplios para detectar campos editables en páginas HTTP/HTTPS. Instálala solo si confías en el programa y úsala únicamente en perfiles de navegador donde necesites la función.
+
+INSTALACIÓN LINUX SIN PYTHON
+----------------------------
+Extrae el tar.gz de Linux y ejecuta ./instalar_escritor_automatico_linux.sh. Instala solo para tu usuario y crea un acceso en el menú de aplicaciones. Para desinstalar, ejecuta ~/.local/opt/escritor-automatico/desinstalar.sh.
+
+Si ejecutas el código fuente como desarrollador en Linux, necesitarás Python 3.11+ y puedes instalar dependencias con ./instalar_dependencias_linux.sh. Esto no se exige al usuario final que recibe el paquete compilado.
+
+SEGURIDAD Y LIMITACIONES
+------------------------
+El puente de la extensión escucha solo en 127.0.0.1:8765. Las validaciones de entrada no protegen frente a malware que ya se ejecute bajo la misma cuenta local. Las extensiones del navegador tienen acceso a los sitios que autorizas. El paquete no está firmado digitalmente.
+
+La sintaxis y configuración se validan en la compilación. Hace falta probar la escritura y el flujo real de actualización en Windows y Linux antes de distribuir ampliamente, especialmente por las limitaciones de Wayland/XWayland. Tras actualizar, recarga la extensión del navegador si no refleja el cambio automáticamente.

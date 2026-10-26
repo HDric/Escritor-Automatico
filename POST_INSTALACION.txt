@@ -1,0 +1,23 @@
+ESCRITOR AUTOMÁTICO v1.0.0 — PRIMEROS PASOS
+====================================
+
+1. Abre Escritor Automático desde el menú Inicio o el acceso directo.
+2. Para usar el modo web, carga la extensión una vez en cada perfil del navegador.
+3. Abre la página de extensiones:
+   Brave:  brave://extensions/
+   Chrome: chrome://extensions/
+   Edge:   edge://extensions/
+4. Activa “Modo de desarrollador” y pulsa “Cargar descomprimida”.
+5. Selecciona la carpeta web_extension ubicada junto a EscritorAutomatico.exe.
+6. Regresa a Escritor Automático, selecciona el modo web y pulsa “Actualizar páginas”.
+
+IMPORTANTE
+==========
+- Conserva la carpeta de instalación en su ubicación; el navegador carga la extensión desde ella.
+- No edites manifest.json ni su campo "key": el programa valida el identificador de esta extensión.
+- La extensión necesita permisos amplios para detectar campos en sitios web. Instálala solo si confías en el programa.
+- Google Docs utiliza un editor especial. Sigue las instrucciones del programa y mantén el documento al frente mientras escribe.
+- El programa no necesita permisos de administrador: se instala para el usuario actual.
+- Para desinstalarlo, abre Configuración de Windows > Aplicaciones > Aplicaciones instaladas.
+- Antes de desinstalar, elimina también la extensión desde la página de extensiones del navegador; de lo contrario, el navegador podría conservar una referencia a la carpeta que se eliminará.
+- La instalación no carga extensiones en silencio: el navegador requiere una acción explícita del usuario.

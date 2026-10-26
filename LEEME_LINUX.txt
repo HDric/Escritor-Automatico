@@ -1,0 +1,39 @@
+ESCRITOR AUTOMÁTICO v1.0.0 — LINUX
+================================
+
+DETECCIÓN DEL SISTEMA
+---------------------
+La aplicación reconoce el sistema operativo y muestra su nombre en la cabecera.
+En Linux se selecciona el backend de teclado basado en pynput.
+
+INSTALACIÓN SIN PYTHON
+---------------------
+1. Descarga EscritorAutomatico-v1.0.0-linux-x86_64.tar.gz desde la GitHub Release o los artefactos de Actions.
+2. Extrae todo el archivo.
+3. Abre una terminal en la carpeta extraída.
+4. Ejecuta:
+   chmod +x instalar_escritor_automatico_linux.sh
+   ./instalar_escritor_automatico_linux.sh
+5. Abre “Escritor Automático 1.0.0” desde el menú de aplicaciones.
+
+La aplicación se instala solo en tu usuario, dentro de ~/.local/opt/escritor-automatico. No requiere permisos de administrador y no instala ni modifica Python del sistema.
+
+ESCRITURA
+---------
+- “Ventana activa”: coloca el cursor en la aplicación de destino durante la cuenta regresiva.
+- “Página web”: instala la carpeta web_extension en Brave, Chrome o Edge desde la página de extensiones (modo de desarrollador) y pulsa “Actualizar páginas”.
+- Las teclas F8/F9 para detener/pausar requieren que el backend de pynput pueda acceder al servidor gráfico.
+
+LIMITACIONES
+------------
+La compatibilidad más completa se espera en X11/Xorg. En Wayland, la seguridad del escritorio puede bloquear la inyección de teclas globales o limitarla a aplicaciones XWayland. Prueba primero con un editor de texto no sensible. No ejecutes el programa como root.
+
+Microsoft Word COM y la escritura en controles Win32 en segundo plano son funciones solo de Windows. En Linux puedes usar LibreOffice Writer o un editor web en modo Ventana activa.
+
+ACTUALIZACIONES
+---------------
+La aplicación puede comprobar GitHub Releases al iniciarse. Si hay una versión nueva, te mostrará las notas. No instalará nada sin que pulses “Descargar actualización” y confirmes la instalación. Desactiva la casilla de comprobación automática en la ventana principal para que no compruebe al iniciar. Si cancelas la instalación, el archivo descargado y verificado se conserva en la caché de tu usuario. Tras actualizar, quizá debas recargar la extensión en el navegador.
+
+DESINSTALAR
+-----------
+Ejecuta ~/.local/opt/escritor-automatico/desinstalar.sh. La desinstalación elimina solo la instalación del usuario actual y el acceso del menú de aplicaciones.

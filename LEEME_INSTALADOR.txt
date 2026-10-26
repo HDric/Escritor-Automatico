@@ -1,0 +1,28 @@
+PROYECTO DE DISTRIBUCIÓN — ESCRITOR AUTOMÁTICO v1.0.0
+==================================================
+
+Este proyecto detecta Windows o Linux dentro de la aplicación y genera dos paquetes diferentes mediante GitHub Actions:
+
+- Windows x64: EscritorAutomatico-Setup-v1.0.0.exe (asistente tradicional de instalación).
+- Linux x86_64: EscritorAutomatico-v1.0.0-linux-x86_64.tar.gz (paquete portable instalado en el perfil del usuario).
+
+NINGUNO DE LOS DOS PAQUETES FINALES REQUIERE QUE EL USUARIO INSTALE PYTHON.
+
+CÓMO CONSTRUIRLOS SIN PYTHON LOCAL
+----------------------------------
+1. Publica la carpeta completa en un repositorio público de GitHub si quieres distribuir el código como código abierto. Asegúrate de incluir .github/workflows/build-installer.yml.
+2. Abre Actions y ejecuta “Construir paquetes Windows y Linux de Escritor Automático”.
+3. Cuando finalicen ambos trabajos, descarga los artefactos:
+   - escritorio-automatico-windows-x64
+   - escritorio-automatico-linux-x86_64
+4. Windows: ejecuta EscritorAutomatico-Setup-v1.0.0.exe.
+5. Linux: extrae EscritorAutomatico-v1.0.0-linux-x86_64.tar.gz y ejecuta ./instalar_escritor_automatico_linux.sh.
+
+El código fuente para desarrollar la aplicación sí requiere Python, pero no es necesario instalarlo en los equipos de los usuarios finales. La compilación se realiza en runners de Windows y Linux independientes porque PyInstaller no es un compilador cruzado.
+
+FUNCIONES SEGÚN EL SISTEMA
+--------------------------
+Windows mantiene los modos de teclado, Microsoft Word con formato mediante COM, pegado HTML enriquecido y mensajes Win32 en segundo plano.
+Linux expone escritura en ventana activa mediante pynput y modo web mediante la extensión. Para mejor compatibilidad se recomienda X11/Xorg; Wayland puede limitar la inyección global de teclas. La función Word COM y las APIs de portapapeles/mensajes Win32 son solo Windows.
+
+El flujo realiza comprobaciones del código y la extensión, y calcula SHA-256 de los paquetes. El instalador aún debe probarse en equipos reales de destino antes de una distribución pública. El paquete no incluye firma digital.

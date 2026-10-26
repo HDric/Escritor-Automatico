@@ -1,0 +1,57 @@
+EXTENSIÓN WEB — ESCRITOR AUTOMÁTICO v1.0.0
+=======================================
+
+COMPATIBILIDAD
+--------------
+La extensión usa Manifest V3 y APIs de Chromium. Está preparada para Brave de escritorio, Google Chrome y Microsoft Edge.
+
+INSTALACIÓN EN BRAVE
+--------------------
+1. Extrae el ZIP completo de Escritor automático en una carpeta normal y conserva esa carpeta.
+2. Abre Brave y escribe brave://extensions/ en la barra de direcciones.
+3. Activa “Modo de desarrollador”.
+4. Pulsa “Cargar descomprimida” / “Load unpacked”.
+5. Selecciona exactamente la carpeta web_extension que está dentro de la carpeta extraída.
+6. Abre el programa Escritor automático v1.0.0 y entra en el modo “Página web en Chrome, Edge o Brave (con extensión)”.
+7. Pulsa “Actualizar páginas”. Si no aparece conexión, abre el menú de la extensión y pulsa “Sincronizar pestañas”.
+
+INSTALACIÓN EN CHROME O EDGE
+----------------------------
+Chrome: chrome://extensions/
+Edge: edge://extensions/
+Activa el modo de desarrollador y carga la misma carpeta web_extension.
+
+IMPORTANTE SOBRE LA CLAVE
+-------------------------
+No elimines ni cambies el campo "key" del manifest.json. Fija el identificador de la extensión que autoriza el puente local Python. Al cargar esta misma carpeta en otro navegador Chromium, se conserva el mismo identificador.
+
+QUÉ HACE Y QUÉ NO HACE
+----------------------
+- Enumera las pestañas HTTP/HTTPS y describe campos editables compatibles; no recopila el texto ya escrito en esos campos.
+- Puede escribir progresivamente en campos web compatibles que acepten eventos de edición.
+- Google Docs utiliza un editor especial; el programa usa el teclado del sistema operativo para ese caso. En Linux, X11/Xorg es la sesión recomendada; Wayland puede limitar la inyección global de teclas. Debes poner Google Docs al frente y colocar el cursor durante la cuenta regresiva.
+- No funciona en páginas internas como brave://, chrome:// o edge://, ni garantiza compatibilidad con editores basados en lienzo o que rechazan eventos sintéticos.
+- Se requiere conceder permiso de acceso a páginas web para detectar campos. Revisa los permisos antes de activarla.
+
+SI NO CONECTA
+-------------
+1. Confirma que Escritor automático esté abierto y que el modo web se haya iniciado.
+2. Revisa que la extensión esté habilitada en brave://extensions/.
+3. En los detalles de la extensión, revisa que tenga acceso a los sitios donde quieres escribir.
+4. Pulsa “Recargar” en la tarjeta de la extensión y luego “Actualizar páginas” en el programa.
+5. Cierra otras instancias de Escritor automático si el puerto local 127.0.0.1:8765 está ocupado.
+
+El puente local escucha únicamente en 127.0.0.1:8765 y solo acepta el identificador de esta extensión.
+
+
+OPTIMIZACIÓN v1.0.0
+El escaneo de iframes ahora tiene un límite para evitar cargas excesivas. El campo key de manifest.json es necesario para conservar el mismo ID de extensión que valida el puente local.
+
+
+SEGURIDAD v1.0.0
+-------------
+- Manifest V3 con CSP explícita: scripts y objetos deben venir de los propios archivos de la extensión.
+- El service worker valida las órdenes recibidas desde el puente local y limita el tamaño de los textos a 6 MiB.
+- La extensión solo se comunica con ws://127.0.0.1:8765; la aplicación Python comprueba el origen de esta extensión antes de aceptar el WebSocket.
+- Los permisos tabs, scripting, webNavigation y acceso a páginas HTTP/HTTPS son amplios. Son necesarios para explorar varias pestañas y sus iframes, pero implican que debes confiar en esta extensión. No la instales si no confías en el código de la carpeta.
+- No utiliza permisos de cookies, historial, descargas, webcam, micrófono ni acceso al portapapeles.
