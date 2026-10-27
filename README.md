@@ -1,122 +1,211 @@
 # Escritor Automático
 
-**Versión inicial pública: 1.0.0**. Las futuras versiones seguirán el esquema semántico `X.Y.Z`.
+**Aplicación de escritorio multiplataforma — Versión 1.0.0**
 
-Aplicación de escritorio multiplataforma para escribir texto de forma progresiva en aplicaciones y páginas web. Detecta si se ejecuta en Windows o Linux y habilita las funciones disponibles en ese sistema.
+Escritor Automático es una aplicación de escritorio desarrollada en Python, acompañada de una extensión para navegador. El proyecto busca facilitar las tareas de escritura automatizada mediante una interfaz de escritorio y herramientas complementarias.
 
-> **Estado del proyecto:** primera versión pública. Antes de usarlo con documentos importantes, revisa los permisos de la extensión y prueba la aplicación en un entorno controlado. La compatibilidad con Google Docs y con sesiones Linux bajo Wayland puede ser limitada.
+Este repositorio contiene el código fuente, los recursos necesarios para la distribución, la documentación del proyecto y los archivos utilizados para generar los instaladores.
 
-## Funciones
+## Características principales
 
-- Editor de texto con opciones de formato básico.
-- Importación de documentos DOCX, HTML y TXT y exportación HTML.
-- Escritura progresiva con velocidad configurable, cuenta regresiva, pausa y detención.
-- Detección del sistema operativo Windows o Linux.
-- Extensión de navegador para Brave, Chrome y Edge que detecta pestañas y campos web compatibles.
-- Vista previa de páginas y campos detectados.
-- Flujos de GitHub Actions para compilar paquetes de Windows x64 y Linux x86_64.
-- Comprobación opcional de nuevas versiones mediante GitHub Releases, con descarga y SHA-256 verificado antes de ofrecer la instalación.
+- **Aplicación de escritorio:** interfaz para utilizar las funciones disponibles de Escritor Automático.
+- **Extensión para navegador:** componente complementario para las funciones que requieren integración con el navegador.
+- **Compatibilidad multiplataforma:** el proyecto contempla distribuciones para Windows y Linux x86_64.
+- **Instaladores:** paquetes preparados para facilitar la instalación sin necesidad de configurar manualmente el entorno de desarrollo.
+- **Código fuente en Python:** permite revisar, mantener y ampliar el proyecto.
 
-Algunas funciones son específicas del sistema: automatización COM de Microsoft Word y escritura Win32 en segundo plano solo funcionan en Windows. En Linux, la escritura mediante teclado depende del entorno de escritorio; X11/Xorg suele ofrecer mejor compatibilidad que Wayland.
+> Las funciones específicas pueden variar según la versión de la aplicación y la extensión instalada.
 
-## Descargas compiladas
+## Para usuarios
 
-Este repositorio contiene el código fuente y la configuración de compilación. Los instaladores no están versionados dentro del repositorio. Para generarlos:
+### 1. Descargar la aplicación
 
-1. Abre la pestaña **Actions** del repositorio en GitHub.
-2. Selecciona **Construir paquetes Windows y Linux de Escritor Automático**.
-3. Pulsa **Run workflow** y espera a que termine correctamente.
-4. Descarga los artefactos `escritorio-automatico-windows-x64` y `escritorio-automatico-linux-x86_64` desde la ejecución.
+Descarga los instaladores desde la sección de versiones del repositorio:
 
-Los artefactos del flujo tienen retención limitada. Para publicar una versión que detecte el actualizador:
+**[Ver versiones y descargas](../../releases)**
 
-1. Cambia el número de versión en `version.json` usando el formato `X.Y.Z` (por ejemplo, `1.0.1`).
-2. Haz commit y push de los cambios.
-3. Crea una etiqueta que coincida exactamente con ese número y publícala:
+Selecciona el paquete correspondiente a tu sistema operativo.
 
-   ```bash
-   git tag v1.0.1
-   git push origin v1.0.1
-   ```
+| Sistema operativo | Paquete |
+|---|---|
+| Windows | Instalador de Windows (`Setup.exe`) |
+| Linux x86_64 | Paquete de Linux publicado en la versión correspondiente |
 
-4. GitHub Actions compilará ambos paquetes y publicará una GitHub Release con los instaladores y `SHA256SUMS.txt`.
+Se recomienda utilizar los archivos adjuntos a una versión publicada, en lugar de descargar archivos sueltos del código fuente.
 
-No basta con hacer push a `main`: el actualizador consulta la última **Release publicada**, no las compilaciones de prueba. La etiqueta debe coincidir con `version.json`.
+### 2. Instalación en Windows
 
-## Requisitos para desarrollo
+1. Descarga el instalador de Windows desde la sección de versiones.
+2. Ejecuta el archivo `Setup.exe`.
+3. Sigue las instrucciones del asistente de instalación.
+4. Abre Escritor Automático desde el acceso directo creado por el instalador, si está disponible.
 
-- Python 3.12 recomendado para la compilación automatizada.
-- Windows: Inno Setup para compilar el instalador localmente.
-- Linux: entorno gráfico compatible. X11/Xorg es el entorno recomendado para la escritura mediante teclado; Wayland puede restringir la entrada global.
-- Navegador Chromium compatible (Brave, Chrome o Edge) para usar la extensión.
+Si Windows muestra una advertencia de seguridad, comprueba que el archivo proceda del repositorio oficial del proyecto antes de continuar.
 
-Las dependencias de la aplicación están en `requirements.txt`; las herramientas de construcción están en `requirements-build.txt`.
+### 3. Instalación en Linux
 
-## Ejecutar desde el código fuente
+1. Descarga el paquete de Linux correspondiente a tu arquitectura.
+2. Consulta las instrucciones específicas incluidas con la distribución.
+3. Instala las dependencias adicionales si fueran necesarias.
+4. Inicia la aplicación siguiendo las instrucciones de la documentación de Linux.
 
-### Windows
+Consulta el archivo `LEEME_LINUX.txt` y, si necesitas preparar el entorno desde el código fuente, revisa `instalar_dependencias_linux.sh`.
 
-1. Instala una versión compatible de Python.
-2. Crea y activa un entorno virtual:
+### 4. Uso de la aplicación
 
-   ```powershell
-   py -3.12 -m venv .venv
-   .\.venv\Scripts\Activate.ps1
-   python -m pip install --only-binary=:all: -r requirements.txt
-   python escritor_automatico.py
-   ```
+Después de instalar Escritor Automático:
 
-   Para compilar el instalador utiliza `CREAR_INSTALADOR.bat` y consulta `LEEME_INSTALADOR.txt`.
+1. Abre la aplicación.
+2. Familiarízate con la interfaz y las opciones disponibles.
+3. Configura los parámetros que necesites para la tarea que deseas realizar.
+4. Utiliza las funciones disponibles en la aplicación y, cuando corresponda, en la extensión para navegador.
+5. Comprueba el resultado obtenido.
 
-### Linux
+Si una función requiere la extensión del navegador u otro componente, asegúrate de que esté instalado y configurado correctamente.
 
-1. Instala Python, Tkinter, el compilador C y las cabeceras para la versión de Python que usarás. En Ubuntu/Debian puedes ejecutar:
+### 5. Problemas frecuentes
 
-   ```bash
-   sudo apt-get install python3 python3-venv python3-tk build-essential python3-dev
-   ```
+- **La aplicación no inicia:** verifica que hayas descargado el paquete adecuado para tu sistema operativo.
+- **Faltan dependencias en Linux:** consulta `LEEME_LINUX.txt` y la documentación de instalación.
+- **La extensión no funciona:** comprueba su instalación, configuración y compatibilidad con el navegador.
+- **El instalador presenta errores:** descarga nuevamente el archivo desde la versión publicada y consulta los registros disponibles.
+- **El problema persiste:** abre un reporte de incidencia en el repositorio e incluye el sistema operativo, la versión utilizada y los pasos para reproducir el problema.
 
-2. Desde la raíz del proyecto, ejecuta el script que prepara el entorno virtual y sus dependencias:
+## Para desarrolladores
 
-   ```bash
-   chmod +x instalar_dependencias_linux.sh iniciar_linux.sh
-   ./instalar_dependencias_linux.sh
-   ./iniciar_linux.sh
-   ```
+### Tecnologías utilizadas
 
-   El script compila `evdev==1.9.3` desde su archivo fuente fijado por SHA-256; las demás dependencias se instalan exclusivamente desde wheels. El paquete Linux de la Release ya incluye Python y no requiere realizar estos pasos.
+| Tecnología | Propósito |
+|---|---|
+| Python | Desarrollo de la aplicación |
+| Extensión de navegador | Integración con el navegador |
+| PyInstaller | Generación de ejecutables y paquetes de distribución, según la configuración |
+| Inno Setup | Creación del instalador para Windows |
+| Git y GitHub | Control de versiones y alojamiento del proyecto |
+| GitHub Actions | Automatización de los procesos de compilación y distribución |
 
-## Instalar la extensión
+La configuración concreta de las herramientas puede consultarse en los archivos del repositorio y en los flujos de trabajo de GitHub Actions.
 
-1. Extrae o conserva la carpeta `web_extension`.
-2. Abre la página de extensiones del navegador:
-   - Brave: `brave://extensions/`
-   - Chrome: `chrome://extensions/`
-   - Edge: `edge://extensions/`
-3. Activa el **Modo de desarrollador** y pulsa **Cargar descomprimida**.
-4. Selecciona la carpeta `web_extension`.
-5. Ejecuta la aplicación de escritorio y comprueba que el puente web se conecte.
+### Estructura del proyecto
 
-La extensión solicita permisos de acceso a páginas HTTP/HTTPS para detectar campos editables y sincronizar pestañas. Estos permisos son amplios: instala la extensión solo si confías en el código y desactívala cuando no la necesites. No escribas contraseñas ni datos sensibles con la automatización activa.
+Los archivos principales se organizan de acuerdo con su función:
 
-## Seguridad y privacidad
+| Archivo o directorio | Propósito |
+|---|---|
+| Código fuente de la aplicación | Implementación de la aplicación de escritorio |
+| Código de la extensión | Funcionalidad complementaria para el navegador |
+| `.github/workflows/` | Flujos automatizados de compilación y publicación |
+| `requirements-build.txt` | Dependencias relacionadas con la compilación |
+| `requirements-linux-source.txt` | Dependencias para el entorno Linux desde código fuente |
+| `preflight.py` | Comprobaciones previas relacionadas con el proceso de preparación o compilación |
+| `preflight_linux.py` | Comprobaciones previas para Linux |
+| `installer.iss` | Configuración del instalador de Windows, si está presente en la raíz |
+| `INFORME_MULTIPLATAFORMA.md` | Documentación sobre la compatibilidad y distribución multiplataforma |
+| `INFORME_SEGURIDAD.md` | Información relacionada con la seguridad del proyecto |
+| `INFORME_CORRECCION_COMPILACION_v1.0.0.md` | Registro de correcciones relacionadas con la compilación de la versión 1.0.0 |
+| `LEEME_LINUX.txt` | Instrucciones específicas para Linux |
 
-- El puente local de la aplicación está diseñado para escuchar en `127.0.0.1`; no debe exponerse a una red pública.
-- El actualizador consulta únicamente el repositorio configurado en `update_config.json`, utiliza HTTPS y exige `SHA256SUMS.txt`. No instala automáticamente: el usuario debe iniciar la descarga y volver a confirmar la ejecución del instalador.
-- La opción **Comprobar actualizaciones automáticamente al iniciar** puede desactivarse desde la interfaz. Las preferencias se guardan en el perfil del usuario, fuera de la carpeta de instalación.
-- SHA-256 detecta corrupción o discrepancias, pero no sustituye una firma de código ni protege frente a una cuenta de publicación comprometida. Revisa el código y protege la cuenta/repositorio de GitHub.
-- La extensión requiere permisos amplios de navegador para su función de detección. Revisa `web_extension/manifest.json` antes de instalarla.
-- No se deben subir tokens, contraseñas, claves privadas, archivos `.env`, datos personales, documentos de usuarios, logs locales ni ejecutables generados.
-- Lee `INFORME_SEGURIDAD.md` antes de usar o modificar el programa. El informe documenta limitaciones y comprobaciones pendientes; no es una certificación de seguridad.
-- Para comunicar una vulnerabilidad, usa la opción **Report a vulnerability** de la pestaña **Security** del repositorio, si está habilitada, y no publiques detalles explotables en una incidencia pública.
+Esta tabla describe los archivos conocidos del proyecto. Consulta el árbol actual del repositorio para identificar otros módulos, pruebas y componentes.
+
+### Preparar el entorno de desarrollo
+
+Para trabajar con el código fuente se recomienda disponer de:
+
+- Una versión de Python compatible con el proyecto.
+- Git.
+- Un entorno virtual de Python.
+- Las dependencias declaradas en los archivos de requisitos.
+- Las herramientas de compilación correspondientes al sistema operativo, si se desea generar instaladores.
+
+Un procedimiento general para preparar el entorno es:
+
+```bash
+git clone URL_DEL_REPOSITORIO
+cd DIRECTORIO_DEL_PROYECTO
+
+python -m venv .venv
+```
+
+En Linux:
+
+```bash
+source .venv/bin/activate
+python -m pip install -r requirements-linux-source.txt
+```
+
+En Windows, desde Git Bash o una terminal compatible:
+
+```bash
+source .venv/Scripts/activate
+python -m pip install -r requirements-build.txt
+```
+
+**Importante:** los archivos de requisitos pueden tener propósitos diferentes. Antes de instalar dependencias o ejecutar la aplicación, revisa cuál corresponde al entorno que deseas preparar. Estos comandos son una guía inicial y pueden necesitar ajustes según la estructura actual del código.
+
+### Compilación y distribución
+
+El proyecto dispone de flujos de GitHub Actions para automatizar la generación de paquetes de Windows y Linux.
+
+Los archivos de configuración se encuentran en:
+
+```text
+.github/
+└── workflows/
+    └── build-installer.yml
+```
+
+Para modificar el proceso de compilación:
+
+1. Revisa el flujo de trabajo correspondiente.
+2. Comprueba las dependencias y los archivos incluidos en cada paquete.
+3. Ejecuta las verificaciones disponibles.
+4. Valida que los instaladores generados funcionen en el sistema operativo correspondiente.
+5. Revisa los resultados de GitHub Actions antes de publicar una versión.
+
+La publicación de una versión y la compilación de los instaladores son operaciones distintas. Que una compilación termine correctamente no garantiza por sí solo que se haya publicado una versión en GitHub Releases.
+
+### Buenas prácticas de desarrollo
+
+- Mantener el código fuente separado de los archivos generados durante la compilación.
+- Documentar los cambios relevantes y las nuevas dependencias.
+- Evitar incluir contraseñas, tokens, claves privadas o información sensible en el repositorio.
+- Comprobar los cambios antes de crear una versión.
+- Probar los paquetes generados antes de distribuirlos.
+- Actualizar la documentación cuando cambien las funciones, los requisitos o los procedimientos de instalación.
+
+## Documentación del proyecto
+
+Los documentos complementarios deben consultarse según la necesidad:
+
+| Documento | Cuándo consultarlo |
+|---|---|
+| `LEEME_LINUX.txt` | Instalación y uso en Linux |
+| `INFORME_MULTIPLATAFORMA.md` | Compatibilidad y distribución para distintos sistemas operativos |
+| `INFORME_SEGURIDAD.md` | Consideraciones de seguridad |
+| `INFORME_CORRECCION_COMPILACION_v1.0.0.md` | Antecedentes de las correcciones de compilación |
+| `OBTENER_SETUP_EN_NUBE.md` | Información sobre la obtención del instalador desde los procesos de compilación, si sigue vigente |
+| `README.md` | Información general para usuarios y desarrolladores |
+
+Los documentos internos que describan procedimientos temporales de mantenimiento deben mantenerse actualizados y no sustituir las instrucciones de uso destinadas a los usuarios finales.
+
+## Reportar problemas y proponer mejoras
+
+Si encuentras un error o deseas proponer una mejora:
+
+1. Comprueba si el problema ya está reportado.
+2. Describe el comportamiento observado y el esperado.
+3. Indica la versión de Escritor Automático y el sistema operativo.
+4. Incluye los pasos necesarios para reproducir el problema.
+5. Evita adjuntar contraseñas, datos personales o información confidencial.
+
+Puedes utilizar la sección de incidencias del repositorio para comunicar errores y sugerencias.
 
 ## Licencia
 
-Este proyecto incluye una plantilla de licencia MIT en `LICENSE`. **Antes de publicar**, reemplaza `[Nombre del titular]` por el nombre del titular de los derechos y confirma que tienes derecho a licenciar todos los archivos incluidos. Revisa también las licencias de las dependencias de terceros.
+Consulta el archivo `LICENSE` incluido en el repositorio para conocer las condiciones de uso, modificación y distribución del proyecto.
 
-## Contribuciones
+## Versión
 
-Las contribuciones pueden proponerse mediante issues y pull requests. Incluye pasos para reproducir errores, sistema operativo, versión de Python y registros redactados para no exponer datos privados.
+**Versión documentada:** `1.0.0`
 
-
-Nota de compilación Linux: `evdev` requiere compilar su extensión nativa. El flujo de GitHub Actions instala `build-essential` y `python3.12-dev`, compila `evdev==1.9.3` con SHA-256 fijado y descarga el resto de dependencias solo como wheels.
+Consulta la sección de versiones del repositorio para obtener los paquetes publicados y revisar las notas de cada versión.
