@@ -1,5 +1,12 @@
 # Actualizaciones voluntarias
 
+## v1.0.1 — Optimización de rendimiento
+
+- Se optimizó el contador de caracteres y líneas del editor para evitar copiar todo el documento a Python en cada actualización.
+- Se aumentó el intervalo de actualización del contador de 180 a 300 ms para reducir el trabajo repetitivo al escribir textos grandes.
+- Se ajustó la compresión del instalador de Windows (`lzma2/fast` y `SolidCompression=no`) para priorizar la generación y extracción más ágiles frente al tamaño mínimo del instalador.
+- Esta versión no garantiza resolver todos los tirones de la aplicación: los retrasos al abrir documentos, aplicar formato o ejecutar escritura automática pueden requerir optimizaciones adicionales.
+
 ## Primera publicación
 
 La primera versión pública está definida como `1.0.0` en `version.json`. Tras publicar el código en `main`, comprueba que la compilación funciona y crea la etiqueta `v1.0.0` para generar la GitHub Release inicial. Las siguientes correcciones pueden publicarse como `1.0.1`, nuevas funciones compatibles como `1.1.0` y cambios incompatibles como `2.0.0`.

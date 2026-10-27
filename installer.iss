@@ -1,7 +1,7 @@
 #define MyAppName "Escritor Automático"
 #define MyAppExeName "EscritorAutomatico.exe"
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "1.0.1"
 #endif
 
 [Setup]
@@ -25,8 +25,8 @@ RestartApplications=no
 SetupMutex=EscritorAutomaticoSetupMutex
 SetupLogging=yes
 WizardStyle=modern
-Compression=lzma2/max
-SolidCompression=yes
+Compression=lzma2/fast
+SolidCompression=no
 OutputDir=dist-installer
 OutputBaseFilename=EscritorAutomatico-Setup-v{#AppVersion}
 VersionInfoVersion={#AppVersion}
