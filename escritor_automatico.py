@@ -2187,17 +2187,31 @@ class EscritorAutomatico:
                 self.root.after_cancel(self._count_update_id)
             except tk.TclError:
                 pass
-        self._count_update_id = self.root.after(180, self._update_count_status)
+        # Un intervalo algo mayor evita recalcular el contador constantemente
+        # mientras el usuario escribe documentos grandes.
+        self._count_update_id = self.root.after(300, self._update_count_status)
 
     def _update_count_status(self):
         self._count_update_id = None
         if self.closing:
             return
         try:
-            text = self.editor.get("1.0", "end-1c")
-        except tk.TclError:
+            # Cuenta dentro de Tcl/Tk, sin copiar todo el documento a Python ni
+            # crear una lista temporal mediante splitlines().
+            counts = self.editor.count("1.0", "end-1c", "chars", "lines")
+            if not counts:
+                chars, newline_count = 0, 0
+            else:
+                chars, newline_count = int(counts[0]), int(counts[1])
+            # Tk cuenta saltos de línea; splitlines() cuenta líneas no vacías
+            # finales como lo hacía la versión anterior.
+            if chars and self.editor.get("end-2c", "end-1c") != "\n":
+                lines = newline_count + 1
+            else:
+                lines = newline_count
+        except (tk.TclError, TypeError, ValueError):
             return
-        self.count_status.set(f"{len(text):,} caracteres · {len(text.splitlines()):,} líneas")
+        self.count_status.set(f"{chars:,} caracteres · {lines:,} líneas")
 
     @staticmethod
     def _cm_to_pt(value: float) -> float:

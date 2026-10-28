@@ -6,9 +6,10 @@ on:
     branches:
       - main
       - master
+      - beta/v1.0.1
     tags:
       - 'v*'
-
+      
 permissions:
   contents: read
 
