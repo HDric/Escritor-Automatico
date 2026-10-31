@@ -49,7 +49,7 @@ if not defined ISCC (
 )
 echo Compilador encontrado: "%ISCC%"
 >>"%LOG%" echo Inno Setup: %ISCC%
-powershell -NoProfile -NonInteractive -Command "$v = (Get-Item -LiteralPath $env:ISCC).VersionInfo.ProductVersion; if ($v -notmatch '^6\.7\.1') { Write-Error ('Version ISCC inesperada: ' + $v); exit 1 }" >>"%LOG%" 2>&1
+powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "tools\verify_inno_setup.ps1" -CompilerPath "%ISCC%" -RequiredVersion "6.7.1" >>"%LOG%" 2>&1
 if errorlevel 1 (
   echo ERROR: Se esperaba Inno Setup 6.7.1. Revisa BUILD_INSTALADOR.log.
   goto :error
