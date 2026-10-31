@@ -58,6 +58,17 @@ jobs:
           if errorlevel 1 exit /b 1
           if not exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" exit /b 1
 
+      - name: Instalar dependencia Ed25519 para las pruebas
+        shell: pwsh
+        run: |
+          # Las pruebas se ejecutan antes de CREAR_INSTALADOR.bat, que crea su propio
+          # entorno virtual e instala requirements.txt. Por eso se instala aquí la
+          # dependencia criptográfica fijada que necesita la verificación Ed25519.
+          py -3.12 -m pip install --disable-pip-version-check --only-binary=:all: "cryptography==50.0.2"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          py -3.12 -c "from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey; print('Ed25519 disponible:', Ed25519PublicKey.__name__)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Probar lógica del actualizador
         shell: cmd
         run: py -3.12 -m unittest discover -s tests -v
