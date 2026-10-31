@@ -2,11 +2,14 @@ name: Construir paquetes Windows y Linux de Escritor Automático
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
       - master
-      - beta/v1.0.1
+      - beta/v1.0.2
     tags:
       - 'v*'
       
@@ -25,14 +28,13 @@ jobs:
 
     steps:
       - name: Descargar el código del repositorio
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Preparar Python 3.12 x64
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
           architecture: x64
-          check-latest: true
 
       - name: Configurar el actualizador y validar la versión
         shell: pwsh
@@ -45,21 +47,30 @@ jobs:
           Write-Host "Repositorio de actualizaciones: $env:GITHUB_REPOSITORY"
           Write-Host "Versión de la aplicación: $version"
 
-      - name: Instalar Inno Setup
+      - name: Instalar Inno Setup 6.7.1 (versión fijada)
         shell: pwsh
-        run: choco install innosetup --yes --no-progress
+        run: choco install innosetup --version=6.7.1 --yes --no-progress
 
       - name: Verificar herramientas de compilación
         shell: cmd
         run: |
           py -3.12 --version
           if errorlevel 1 exit /b 1
-          where ISCC.exe
-          if errorlevel 1 if not exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" exit /b 1
+          if not exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" exit /b 1
 
       - name: Probar lógica del actualizador
         shell: cmd
         run: py -3.12 -m unittest discover -s tests -v
+
+      - name: Auditar dependencias declaradas
+        shell: pwsh
+        run: |
+          py -3.12 -m pip install --disable-pip-version-check pip-audit
+          py -3.12 -m pip_audit -r requirements.txt
+          py -3.12 -m pip_audit -r requirements-build.txt
+          New-Item -ItemType Directory -Force security-artifacts | Out-Null
+          py -3.12 -m pip_audit -r requirements.txt --format cyclonedx-json --output security-artifacts/sbom-runtime.cdx.json
+          py -3.12 -m pip_audit -r requirements-build.txt --format cyclonedx-json --output security-artifacts/sbom-build.cdx.json
 
       - name: Construir Escritor Automático y Setup.exe
         shell: cmd
@@ -84,12 +95,13 @@ jobs:
           }
 
       - name: Subir instalador de Windows como artefacto
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@c2acdedd35a8824a1552c7137f8c18288c3ea469 # v7.0.2
         with:
           name: escritorio-automatico-windows-x64
           path: |
             dist-installer/EscritorAutomatico-Setup-v*.exe
             dist-installer/SHA256SUMS.txt
+            security-artifacts/sbom-*.cdx.json
           if-no-files-found: error
           retention-days: 14
 
@@ -100,7 +112,7 @@ jobs:
 
     steps:
       - name: Descargar el código del repositorio
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Preparar Python del sistema y Tkinter
         shell: bash
@@ -125,6 +137,16 @@ jobs:
 
       - name: Probar lógica del actualizador
         run: /usr/bin/python3.12 -m unittest discover -s tests -v
+
+      - name: Auditar dependencias declaradas
+        run: |
+          set -euo pipefail
+          /usr/bin/python3.12 -m pip install --disable-pip-version-check pip-audit
+          /usr/bin/python3.12 -m pip_audit -r requirements.txt
+          /usr/bin/python3.12 -m pip_audit -r requirements-build.txt
+          mkdir -p dist-linux
+          /usr/bin/python3.12 -m pip_audit -r requirements.txt --format cyclonedx-json --output dist-linux/sbom-runtime.cdx.json
+          /usr/bin/python3.12 -m pip_audit -r requirements-build.txt --format cyclonedx-json --output dist-linux/sbom-build.cdx.json
 
       - name: Verificar la configuración Linux
         run: /usr/bin/python3.12 preflight_linux.py
@@ -174,12 +196,13 @@ jobs:
           sha256sum "dist-linux/EscritorAutomatico-v${VERSION}-linux-x86_64.tar.gz" > dist-linux/SHA256SUMS-LINUX.txt
 
       - name: Subir paquete Linux como artefacto
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@c2acdedd35a8824a1552c7137f8c18288c3ea469 # v7.0.2
         with:
           name: escritorio-automatico-linux-x86_64
           path: |
             dist-linux/EscritorAutomatico-v*-linux-x86_64.tar.gz
             dist-linux/SHA256SUMS-LINUX.txt
+            dist-linux/sbom-*.cdx.json
           if-no-files-found: error
           retention-days: 14
 
@@ -195,16 +218,21 @@ jobs:
       contents: write
     steps:
       - name: Descargar el código etiquetado
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Preparar Python para firmar la Release
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
 
       - name: Descargar instalador de Windows
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@0d2ec9d4cbcefe257d822f108de2a1f15f8da9f6 # v7.0.0
         with:
           name: escritorio-automatico-windows-x64
           path: release-assets/windows
 
       - name: Descargar paquete Linux
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@0d2ec9d4cbcefe257d822f108de2a1f15f8da9f6 # v7.0.0
         with:
           name: escritorio-automatico-linux-x86_64
           path: release-assets/linux
@@ -218,8 +246,33 @@ jobs:
           mkdir -p release-assets/final
           cp "release-assets/windows/EscritorAutomatico-Setup-v${VERSION}.exe" release-assets/final/
           cp "release-assets/linux/EscritorAutomatico-v${VERSION}-linux-x86_64.tar.gz" release-assets/final/
-          (cd release-assets/final && sha256sum "EscritorAutomatico-Setup-v${VERSION}.exe" "EscritorAutomatico-v${VERSION}-linux-x86_64.tar.gz" > SHA256SUMS.txt)
+          cp release-assets/windows/sbom-runtime.cdx.json release-assets/final/
+          cp release-assets/windows/sbom-build.cdx.json release-assets/final/
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+          source = Path("web_extension")
+          import json
+          version = json.loads(Path("version.json").read_text(encoding="utf-8"))["version"]
+          destination = Path("release-assets/final") / f"EscritorAutomatico-WebExtension-v{version}.zip"
+          with ZipFile(destination, "w", compression=ZIP_DEFLATED, compresslevel=9) as archive:
+              for file in sorted(source.rglob("*")):
+                  if file.is_file():
+                      archive.write(file, file.as_posix())
+          PY
+          (cd release-assets/final && sha256sum \
+            "EscritorAutomatico-Setup-v${VERSION}.exe" \
+            "EscritorAutomatico-v${VERSION}-linux-x86_64.tar.gz" \
+            "EscritorAutomatico-WebExtension-v${VERSION}.zip" \
+            sbom-runtime.cdx.json sbom-build.cdx.json > SHA256SUMS.txt)
           cat release-assets/final/SHA256SUMS.txt
+
+      - name: Firmar el manifiesto SHA-256 con Ed25519
+        env:
+          UPDATE_SIGNING_PRIVATE_KEY_B64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_B64 }}
+        run: |
+          python -m pip install --disable-pip-version-check --only-binary=:all: 'cryptography==50.0.2'
+          python tools/sign_release_manifest.py release-assets/final/SHA256SUMS.txt release-assets/final/SHA256SUMS.txt.sig
 
       - name: Crear Release y adjuntar instaladores verificados
         env:
@@ -227,9 +280,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          assets=(release-assets/final/EscritorAutomatico-Setup-v*.exe release-assets/final/EscritorAutomatico-v*-linux-x86_64.tar.gz release-assets/final/SHA256SUMS.txt)
+          assets=(release-assets/final/EscritorAutomatico-Setup-v*.exe release-assets/final/EscritorAutomatico-v*-linux-x86_64.tar.gz release-assets/final/EscritorAutomatico-WebExtension-v*.zip release-assets/final/SHA256SUMS.txt release-assets/final/SHA256SUMS.txt.sig release-assets/final/sbom-*.cdx.json)
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+            echo "La Release $GITHUB_REF_NAME ya existe. No se sobrescriben assets publicados; crea una nueva etiqueta para publicar otra compilación." >&2
+            exit 1
           else
             gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
               --verify-tag \
