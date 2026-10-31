@@ -1,56 +1,80 @@
-INFORME DE REVISIÓN DE SEGURIDAD — ESCRITOR AUTOMÁTICO v18
-Fecha de revisión: 22 de octubre de 2026
-Alcance: código fuente local de v17 y cambios aplicados en v18, scripts BAT, requirements.txt y extensión Manifest V3.
+# Informe de seguridad — Escritor Automático v1.0.2
 
-RESUMEN EJECUTIVO
-Se revisaron las dependencias, el servidor WebSocket local, validación de mensajes, tratamiento de capturas de imagen y permisos de la extensión. No se encontró código explícito para descargar o ejecutar programas externos, ni uso de eval(), exec() de Python, subprocess u os.system en el código inspeccionado. La extensión sí usa document.execCommand("insertText"/"insertParagraph") como mecanismo de edición de texto, no para ejecutar código. Esto no equivale a una certificación ni garantiza ausencia de vulnerabilidades.
+**Alcance:** revisión estática del código y pruebas automatizadas del repositorio. No equivale a una certificación, auditoría externa, pentest ni validación de los instaladores compilados en Windows y Linux.
 
-CAMBIOS APLICADOS EN V18
-1. Dependencias de la aplicación fijadas: python-docx==1.2.0; lxml==6.1.3; typing_extensions==4.16.0; websockets==17.3; Pillow==13.0.0; pywin32==312 (solo Windows). El instalador también fija pip==26.2.2, publicado el 20-10-2026 con Trusted Publishing habilitado.
-2. Instalación aislada en .venv, no en el Python global.
-3. Límite de 6 MiB para textos enviados al modo web.
-4. Instalación desde wheels para las dependencias habituales. Excepción controlada solo en Linux: `evdev==1.9.3` se construye desde el sdist oficial fijado con SHA-256, usando herramientas nativas de compilación en el runner de CI.
-5. Python mínimo 3.11. Pillow 13 dejó de soportar Python 3.10 y websockets 17 requiere Python moderno; el instalador valida la versión.
-6. Puente WebSocket: sigue enlazado a 127.0.0.1 y valida el origen exacto chrome-extension://gokleoeeegcjpahldnbmepeeokjafodl. Ahora rechaza tipos de mensajes no permitidos y estructuras/campos de tamaño excesivo; limita la frecuencia, tamaño y cola, y desactiva compresión.
-7. Vista previa: acepta solo data:image/jpeg;base64, valida base64, limita tamaño y número de píxeles, comprueba formato e integridad antes de decodificar.
-8. Extensión: valida comandos entrantes y límite de 6 MiB para texto; CSP explícita de Manifest V3. Se conserva la clave pública del manifest y el ID de extensión coincide con el configurado en Python.
+## Controles incorporados en esta versión
 
-RIESGOS Y LIMITACIONES RESTANTES
-- La extensión pide permisos tabs, scripting, webNavigation y acceso de host a todas las URLs HTTP/HTTPS, además de insertar content.js en todos los frames HTTP/HTTPS. Es un permiso amplio y le da capacidad de inspeccionar metadatos de pestañas y detectar campos en muchas páginas. Se mantiene para no romper la función de búsqueda automática en todas las pestañas. Una futura opción de permisos por sitio reduciría privilegios, a costa de cambiar el flujo actual.
-- El puente se defiende frente a páginas web comunes comprobando Origin y usando loopback, pero Origin no es autenticación criptográfica contra un proceso local malicioso que pueda conectarse y falsificar cabeceras; tampoco protege frente a malware que ya corre bajo la misma cuenta de Windows. Para un modelo de amenazas más fuerte convendría migrar a Native Messaging o a un canal con autenticación de sesión.
-- Los paquetes tienen versiones fijadas (incluido pip==26.2.2), pero los wheels no están fijados por SHA-256. Para reproducibilidad/supply-chain más estricta se necesita un lockfile con hashes de cada wheel/plataforma y todas las dependencias transitivas; los hashes deben obtenerse y verificarse de PyPI y la instalación debe usar --require-hashes. La documentación oficial de pip recomienda combinar hash-checking y --only-binary=:all:.
-- En los metadatos de PyPI consultados, python-docx 1.2.0, lxml 6.1.3 y pywin32 312 no muestran procedencia verificable (Trusted Publishing / attestation). Eso no demuestra que sean maliciosos, pero impide verificar de forma independiente el origen del artefacto publicado. Pillow, websockets y typing_extensions sí muestran mejor información de publicación en sus páginas de proyecto. Conviene considerar este límite antes de usar la aplicación en equipos con información sensible.
-- No se probó el programa dentro de una máquina Windows real, ni con sesiones reales de Brave/Chrome/Edge/Word/Google Docs. Las pruebas de sintaxis y estructuras no equivalen a pentesting dinámico.
-- El texto introducido se transmite desde la aplicación al destino que el usuario elige. El contenido preexistente no se envía al programa Python ni a servidores remotos; sin embargo, el content script puede leer localmente el valor de un input para insertar en el cursor y preservar el resto del valor. La extensión recorre metadatos de las páginas abiertas para detectar objetivos. La vista previa, cuando el usuario la solicita, envía una captura de la pestaña al programa local.
+### Puente local y extensión Chromium
 
-DEPENDENCIAS Y MOTIVO DE ACTUALIZACIÓN
-- Pillow: el requisito previo era >=10.0 y admitía versiones antiguas. Pillow 13.0.0 se publicó el 16-10-2026 e incluye correcciones de numerosas vulnerabilidades de severidad crítica/alta y otras; se fijó esa versión. Fuentes: https://pillow.readthedocs.io/en/stable/releasenotes/13.0.0.html y https://github.com/python-pillow/Pillow/security/advisories
-- websockets: el requisito previo era >=14,<17, que excluía la versión 17.3 publicada el 19-10-2026. El proyecto declara que solo la versión más reciente recibe actualizaciones de seguridad. Se fija 17.3. Fuentes: https://pypi.org/project/websockets/ y https://github.com/python-websockets/websockets/security
-- python-docx: fijado en 1.2.0, versión estable publicada el 16-06-2025; se utiliza para importar/exportar .docx. Fuente: https://pypi.org/project/python-docx/
-- lxml: fijado en 6.1.3, versión estable publicada el 02-09-2026. Fuente: https://pypi.org/project/lxml/
-- typing_extensions: fijado en 4.16.0. Fuente: https://pypi.org/project/typing-extensions/
-- pywin32: fijado en 312; solo se instala en Windows y sirve para automatización COM con Word. En PyPI, los archivos publicados no muestran Trusted Publishing/procedencia verificada. Fuente: https://pypi.org/project/pywin32/312/
-- pip: el instalador usa pip==26.2.2 para evitar seguir una versión arbitraria en cada instalación; PyPI indica que ese lanzamiento sí cuenta con procedencia verificada. Fuente: https://pypi.org/project/pip/26.2.2/
+- El servidor WebSocket escucha únicamente en `127.0.0.1:8765` y conserva la validación del origen de la extensión.
+- Antes de procesar mensajes, la extensión y la aplicación realizan un intercambio HMAC-SHA-256 con nonces aleatorios de 256 bits en ambas direcciones. Se rechazan conexiones que no demuestren conocer el código de vinculación.
+- El código de vinculación se genera aleatoriamente, se conserva en la configuración del usuario y en sistemas POSIX se escribe con permisos `0600` dentro de un directorio `0700`.
+- Solo se mantiene un cliente autenticado y se limitan los intentos de autenticación simultáneos.
+- La cola de eventos limita simultáneamente el número de elementos, el tamaño máximo por evento y el presupuesto de memoria encolada. Se aplica límite de tamaño, estructura y frecuencia a los mensajes entrantes.
+- La extensión ya no declara acceso a todas las páginas como permiso obligatorio. Los permisos `tabs`, `scripting`, `webNavigation` y los orígenes HTTP/HTTPS se solicitan mediante una acción explícita del usuario.
+- Las URLs enviadas en la lista de pestañas y en la previsualización eliminan consulta y fragmento. Se muestran metadatos de pestaña y campos compatibles; no se lee el valor que el usuario ya haya escrito en esos campos.
+- La previsualización de pantalla requiere confirmación desde la aplicación. La escritura web también solicita confirmación con el dominio y el campo destino.
 
-VALIDACIONES REALIZADAS EN ESTE ENTORNO
-- Sintaxis Python validada con py_compile.
-- Sintaxis JavaScript validada con Node.js 22 mediante node --check para content.js, popup.js y service_worker.js.
-- JSON del manifest.json validado; se comprobó que existe la clave pública y que el ID derivado corresponde al ID configurado en Python.
-- Inspección estática de scripts BAT y búsqueda de patrones como subprocess, Popen, os.system, shell=True, eval(), exec(), pickle.loads y peticiones HTTP desde la aplicación; no aparecieron usos de esos patrones en el código inspeccionado.
-- Se ejecutaron pruebas ligeras de validadores del puente para tipos de mensaje, campos con tamaños excesivos, datos de imagen y límites de estructura.
-- La comprobación de sintaxis no equivale a instalar las dependencias en Windows. No se ejecutó pip-audit sobre un entorno instalado ni una prueba dinámica/pentest de la aplicación en Windows o Brave; debe hacerse antes de considerar el programa validado para producción.
+**Limitación:** este puente sigue usando WebSocket en loopback, no Native Messaging. Un proceso malicioso ejecutado bajo la misma cuenta podría intentar leer el código de vinculación de la configuración de usuario o del perfil de extensión, manipular el navegador o interferir con la aplicación. No compartas el código de vinculación y no ejecutes el programa con privilegios elevados. Para separar mejor los límites de confianza, Native Messaging sigue siendo la evolución recomendada.
 
-RECOMENDACIONES PARA EL USUARIO
-- Instala solo desde este ZIP y no cambies scripts ni archivos de extensión por archivos de terceros.
-- Ejecuta instalar_dependencias.bat y luego iniciar.bat. No instales la extensión en perfiles que contienen sesiones muy sensibles si no necesitas que examine sus pestañas.
-- Revisa los permisos en brave://extensions/, chrome://extensions/ o edge://extensions/.
-- Mantén Windows, el navegador y Python actualizados.
-- Para una auditoría de producción, instala la aplicación en un entorno de prueba, ejecuta pip-audit/dependency scanning, pruebas dinámicas del puente y pruebas con documentos/capturas manipulados.
+### Actualizador y publicaciones
 
+- Las descargas usan HTTPS y un manejador que valida el esquema y el host de cada redirección antes de seguirla.
+- Se validan el repositorio, la etiqueta, los nombres y las rutas de descarga de los artefactos para exigir los enlaces de la Release esperada.
+- La lista `SHA256SUMS.txt` debe venir acompañada de `SHA256SUMS.txt.sig`. La firma Ed25519 se verifica con una clave pública integrada en la aplicación, independiente del contenido publicado en la Release.
+- El actualizador verifica el SHA-256 del instalador descargado. Vuelve a comprobar el paquete inmediatamente antes de ejecutarlo y comprueba también el hash del script Linux extraído.
+- La caché de actualización se limita a una carpeta de versión y se crean archivos con permisos restrictivos cuando el sistema operativo lo permite.
+- El flujo de GitHub Actions firma el manifiesto con el secreto `UPDATE_SIGNING_PRIVATE_KEY_B64`. La clave privada no forma parte del repositorio, de los artefactos ni de las Releases.
+- Las Releases existentes no se sobrescriben. La publicación exige crear una nueva etiqueta y adjunta el manifiesto, su firma, los paquetes y SBOMs CycloneDX.
+- Las acciones de GitHub usadas en el workflow están fijadas por SHA completo. El compilador Inno Setup instalado por CI se fija a una versión concreta.
+- CI ejecuta `pip-audit` sobre las dependencias de ejecución y de compilación y genera SBOMs.
 
-## Consideraciones multiplataforma v1.0.0
+**Limitaciones:** la firma de la Release autentica los manifiestos y paquetes frente a la clave pública integrada, pero no es una firma Authenticode del instalador de Windows. La clave de firma debe protegerse como secreto de GitHub con acceso mínimo, autenticación multifactor y revisión de permisos. La rotación de la clave pública requiere publicar una versión de la aplicación que confíe en la nueva clave. Una cuenta de GitHub comprometida con acceso a la clave podría firmar artefactos maliciosos.
 
-En Linux se usa `pynput` versión 1.8.2 sin solicitar elevación de privilegios. La compatibilidad depende de X11/Xorg o de las restricciones del entorno Wayland/XWayland. No se recomienda ejecutar la aplicación como root para superar restricciones de entrada del escritorio. La extensión y su puente local mantienen el alcance y los límites de seguridad documentados previamente.
+### Importación de documentos
 
+- Los archivos TXT, HTML y DOCX se limitan a 25 MiB de tamaño comprimido.
+- Para DOCX se limitan el número de componentes ZIP y el volumen descomprimido antes de abrirlo con `python-docx`.
+- El XML del tema DOCX se analiza con `defusedxml`.
+- La extracción de estilos CSS por clase evita la expresión regular sobre el documento completo y trunca entradas superiores a 5 millones de caracteres.
 
-Excepción de compilación Linux: `evdev==1.9.3` solo se distribuye en PyPI como archivo fuente. El workflow valida su SHA-256 (hash obtenido de la página de la release en PyPI) antes de compilarlo; el resto de dependencias sigue limitado a wheels. Las compilaciones reales deben revisarse en los registros de Actions.
+### Instalación Linux y compilación Windows
+
+- El instalador Linux prepara primero la nueva versión en un directorio temporal del mismo sistema de archivos, sustituye el directorio con `rename` y conserva una copia de seguridad de la instalación anterior. Si falla la sustitución, intenta restaurarla.
+- La entrada `.desktop` se genera con el argumento ejecutable entrecomillado y escapado.
+- El script Windows no busca `ISCC.exe` en el directorio actual ni en `PATH`; utiliza rutas absolutas habituales y valida la versión del compilador.
+
+## Tratamiento de datos y comportamiento
+
+- El programa realiza solicitudes HTTP(S) a GitHub para consultar y descargar Releases cuando el usuario busca actualizaciones o activa la comprobación automática. GitHub puede recibir la dirección IP y el agente de usuario de esa conexión.
+- La comprobación de actualizaciones al iniciar está desactivada por defecto.
+- Al conceder permisos de páginas, la extensión puede consultar pestañas HTTP/HTTPS, títulos, dominios/rutas sin query ni fragmento y metadatos de campos editables (por ejemplo, etiqueta, placeholder y geometría). La extensión no necesita enviar el texto que ya se encuentra en esos campos.
+- La captura de la pestaña se solicita desde la aplicación después de una confirmación explícita del usuario.
+- En Linux, el listener de atajos `pynput` puede observar eventos de teclado a bajo nivel mientras está activo; el código solo utiliza F8/F9 para detener o pausar y no almacena ni transmite el resto de teclas.
+- Hay usos de `subprocess.Popen` con listas de argumentos para abrir recursos locales o iniciar instaladores. No se usa `shell=True`, `os.system`, `eval`, `exec`, `pickle` ni `innerHTML` en los flujos revisados.
+
+## Dependencias y pruebas
+
+- Las dependencias directas y la herramienta de compilación están fijadas por versión. La compilación CI audita los manifiestos de requisitos y genera SBOMs.
+- Las pruebas cubren el protocolo HMAC, persistencia del código, límites de cola, firmas Ed25519, comparación SHA-256, redirecciones HTTPS, rechazo de firmas inválidas, extracción TAR y rechazo de rutas/enlaces peligrosos.
+- La sintaxis de JavaScript se valida con Node.js en la revisión local del parche. CI además ejecuta las pruebas Python y los preflight de cada plataforma.
+
+## Configuración obligatoria antes de publicar v1.0.2
+
+1. Crear un secreto de repositorio llamado `UPDATE_SIGNING_PRIVATE_KEY_B64` con el contenido de `UPDATE_SIGNING_PRIVATE_KEY_B64.txt` entregado aparte. No incluir ese archivo en el ZIP del proyecto, Git, issues, commits ni Releases.
+2. Restringir quién puede administrar Actions secrets y publicar etiquetas/releases. Activar MFA en las cuentas con permiso de escritura.
+3. Subir `beta/v1.0.2`, ejecutar el workflow y comprobar ambas plataformas. La publicación por etiqueta `v1.0.2` fallará intencionalmente si el secreto no está configurado o no corresponde a la clave pública integrada.
+4. Antes de distribuir los instaladores, probar instalación, actualización, rollback Linux, permisos de extensión y escritura real en equipos Windows y Linux.
+
+## Riesgos residuales
+
+- No hay Native Messaging ni un broker aislado para el puente local.
+- Un proceso malicioso con el mismo usuario puede atacar o leer datos de la sesión de usuario; los permisos por usuario no protegen contra malware de esa misma cuenta.
+- La extensión no está distribuida mediante Chrome Web Store o Edge Add-ons; se carga manualmente desde la carpeta del proyecto. El ZIP de extensión queda incluido en la Release y cubierto por el manifiesto firmado, pero cada usuario debe mantener esa carpeta protegida.
+- El instalador Windows no tiene firma Authenticode propia; Windows puede mostrar el aviso de editor desconocido.
+- El funcionamiento real de automatización, GUI, instaladores y actualizador requiere pruebas en Windows 10/11 y distribuciones Linux soportadas. Las pruebas ejecutadas en el entorno de desarrollo no prueban todos esos escenarios.
+- Las pruebas automatizadas y el análisis estático no garantizan ausencia de vulnerabilidades.
+
+## Reporte responsable
+
+Consulta `SECURITY.md` para comunicar vulnerabilidades de manera privada. No adjuntes contraseñas, tokens, claves privadas, documentos sensibles ni capturas con información personal.

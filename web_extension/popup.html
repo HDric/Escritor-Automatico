@@ -10,16 +10,22 @@
     p { margin: 0 0 12px; color: #586579; }
     button { width: 100%; border: 0; border-radius: 8px; padding: 10px 12px; cursor: pointer; font-weight: 600; background: #2563eb; color: white; }
     button:hover { background: #1d4ed8; }
-    #status { margin-top: 12px; border-radius: 8px; background: white; border: 1px solid #dce3ee; padding: 10px; }
+    button.secondary { background: #475569; margin-top: 8px; }
+    input { box-sizing: border-box; width: 100%; margin: 8px 0; padding: 9px; border: 1px solid #cbd5e1; border-radius: 7px; font: 11px monospace; }
+    #status { margin-top: 12px; border-radius: 8px; background: white; border: 1px solid #dce3ee; padding: 10px; white-space: pre-wrap; }
     .small { font-size: 11px; margin-top: 10px; }
   </style>
 </head>
 <body>
   <h1>Escritor automático</h1>
   <p>Compatible con Brave, Chrome y Edge. Conecta la extensión con Escritor automático y actualiza las pestañas detectadas.</p>
+  <label for="pairingCode"><strong>Código de vinculación</strong></label>
+  <input id="pairingCode" type="password" autocomplete="off" spellcheck="false" placeholder="Pega aquí el código copiado del programa">
+  <button id="savePairing" class="secondary">Guardar código y vincular</button>
+  <button id="grantPermissions" class="secondary">Permitir acceso a páginas</button>
   <button id="refresh">Sincronizar pestañas</button>
-  <div id="status">Intentando conectar con Escritor automático en este equipo…</div>
-  <p class="small">Abre primero Escritor automático y entra al modo web. Si no conecta, comprueba que el programa siga abierto y vuelve a cargar esta extensión.</p>
+  <div id="status">Abre Escritor Automático, entra en modo web y copia el código de vinculación.</div>
+  <p class="small">El código queda guardado en el almacenamiento local de esta extensión. Los permisos de páginas se solicitan solo después de pulsar el botón y aceptar el aviso del navegador.</p>
   <script src="popup.js"></script>
 </body>
 </html>

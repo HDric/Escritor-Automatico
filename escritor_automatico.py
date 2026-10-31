@@ -7,6 +7,7 @@ de Windows; Linux permite escritura en primer plano y uso del puente web en escr
 from __future__ import annotations
 
 import ctypes
+import base64
 import html
 import importlib
 import json
@@ -15,6 +16,8 @@ import os
 import platform
 import queue
 import shutil
+import socket
+import secrets
 import subprocess
 import re
 import sys
@@ -22,6 +25,7 @@ import threading
 import time
 import traceback
 import uuid
+import zipfile
 from collections import deque
 from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
@@ -29,7 +33,10 @@ import tkinter as tk
 from tkinter import colorchooser, filedialog, messagebox, ttk
 from html.parser import HTMLParser
 from pathlib import Path
-from updater import APP_VERSION, UpdateError, UpdateManager
+from updater import APP_VERSION, UpdateError, UpdateManager, user_config_dir
+from bridge_security import (decode_nonce, decode_pairing_code, encode_nonce,
+                             load_or_create_pairing_code, make_client_proof,
+                             make_server_proof, verify_client_proof)
 
 # python-docx se importa de forma diferida: no ralentiza el inicio si el usuario
 # solo quiere escribir texto o usar el editor básico.
@@ -249,8 +256,10 @@ class WebPageBridge:
     """
     HOST = "127.0.0.1"
     PORT = 8765
-    MAX_MESSAGE_BYTES = 8 * 1024 * 1024
-    MAX_PREVIEW_DATA_URL_CHARS = 7_500_000
+    MAX_MESSAGE_BYTES = 5 * 1024 * 1024
+    MAX_PREVIEW_DATA_URL_CHARS = 4_200_000
+    MAX_EVENT_BYTES = 4_500_000
+    MAX_TOTAL_EVENT_BYTES = 8_500_000
     MAX_TABS = 120
     MAX_FIELDS_PER_TAB = 150
     ALLOWED_INBOUND_TYPES = frozenset({
@@ -259,21 +268,71 @@ class WebPageBridge:
     })
 
     def __init__(self):
-        self.events: queue.Queue = queue.Queue(maxsize=30)
+        self.events: queue.Queue = queue.Queue(maxsize=6)
         self._lock = threading.RLock()
+        self._event_lock = threading.Lock()
+        self._queued_event_bytes = 0
+        self._event_sizes: dict[int, int] = {}
         self._clients: dict[str, dict] = {}
+        self._pending_clients = 0
+        self.pairing_code = load_or_create_pairing_code(user_config_dir() / "bridge_pairing_code.txt")
         self._server = None
         self._thread: threading.Thread | None = None
         self._ready = threading.Event()
         self.error: str | None = None
 
     def _emit(self, event: dict) -> None:
-        """Queue bridge events without allowing a stalled GUI to grow memory forever."""
+        """Encola eventos con límites simultáneos de número y memoria total."""
         try:
-            self.events.put_nowait(event)
-        except queue.Full:
-            # The UI polls frequently; saturated queues are treated as a dropped status update.
-            pass
+            item_size = len(json.dumps(event, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+        except (TypeError, ValueError, UnicodeError):
+            return
+        if item_size > self.MAX_EVENT_BYTES:
+            return
+        with self._event_lock:
+            while (self.events.full() or
+                   self._queued_event_bytes + item_size > self.MAX_TOTAL_EVENT_BYTES):
+                try:
+                    discarded = self.events.get_nowait()
+                except queue.Empty:
+                    break
+                self._queued_event_bytes -= self._event_sizes.pop(id(discarded), 0)
+            try:
+                self.events.put_nowait(event)
+                self._event_sizes[id(event)] = item_size
+                self._queued_event_bytes += item_size
+            except queue.Full:
+                pass
+
+    def get_event_nowait(self):
+        """Recoge un evento y actualiza la contabilidad del presupuesto de memoria."""
+        with self._event_lock:
+            event = self.events.get_nowait()
+            self._queued_event_bytes = max(0, self._queued_event_bytes - self._event_sizes.pop(id(event), 0))
+            return event
+
+    def _authenticate_client(self, websocket) -> bool:
+        """Autentica extensión y aplicación con HMAC-SHA256 y nonces nuevos por sesión."""
+        secret = decode_pairing_code(self.pairing_code)
+        server_nonce = secrets.token_bytes(32)
+        websocket.send(json.dumps({"type": "auth_challenge", "nonce": encode_nonce(server_nonce)}))
+        raw = websocket.recv(timeout=8)
+        if not isinstance(raw, str) or len(raw.encode("utf-8", errors="replace")) > 2048:
+            return False
+        response = json.loads(raw)
+        if not isinstance(response, dict) or response.get("type") != "auth_response":
+            return False
+        client_nonce = decode_nonce(response.get("client_nonce", ""))
+        proof_text = response.get("proof", "")
+        if not isinstance(proof_text, str) or len(proof_text) > 128:
+            return False
+        proof = base64.urlsafe_b64decode(proof_text + "=" * (-len(proof_text) % 4))
+        if not verify_client_proof(secret, server_nonce, client_nonce, proof):
+            return False
+        server_proof = make_server_proof(secret, server_nonce, client_nonce)
+        websocket.send(json.dumps({"type": "auth_ok", "proof":
+                                   base64.urlsafe_b64encode(server_proof).decode("ascii").rstrip("=")}))
+        return True
 
     @staticmethod
     def _bounded_string(value, maximum: int, allow_empty: bool = True) -> bool:
@@ -379,15 +438,26 @@ class WebPageBridge:
             # Restringe el puente a la extensión incluida con este paquete, compatible con navegadores Chromium.
             # Su ID se fija mediante la clave pública incluida en manifest.json.
             allowed_origins = [f"chrome-extension://{WEB_EXTENSION_ID}"]
-            with serve(
-                self._handle_client, self.HOST, self.PORT,
-                origins=allowed_origins, max_size=self.MAX_MESSAGE_BYTES,
-                max_queue=4, compression=None,
-                open_timeout=5, close_timeout=2, ping_interval=20, ping_timeout=20,
-            ) as server:
-                self._server = server
-                self._ready.set()
-                server.serve_forever()
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+                if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                    listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+                listener.bind((self.HOST, self.PORT))
+                with serve(
+                    self._handle_client, sock=listener,
+                    origins=allowed_origins, max_size=self.MAX_MESSAGE_BYTES,
+                    max_queue=4, compression=None,
+                    open_timeout=5, close_timeout=2, ping_interval=20, ping_timeout=20,
+                ) as server:
+                    self._server = server
+                    self._ready.set()
+                    server.serve_forever()
+            finally:
+                try:
+                    listener.close()
+                except OSError:
+                    pass
         except Exception as exc:
             self.error = (
                 f"No se pudo iniciar el puente web en {self.HOST}:{self.PORT}. "
@@ -399,6 +469,37 @@ class WebPageBridge:
     def _handle_client(self, websocket):
         client_id = uuid.uuid4().hex
         with self._lock:
+            # Como máximo dos intentos simultáneos de autenticación; solo un cliente autenticado.
+            if self._clients or self._pending_clients >= 2:
+                try:
+                    websocket.close(code=1008, reason="A client is already connected")
+                except Exception:
+                    pass
+                return
+            self._pending_clients += 1
+        try:
+            if not self._authenticate_client(websocket):
+                try:
+                    websocket.close(code=1008, reason="Authentication failed")
+                except Exception:
+                    pass
+                return
+        except Exception:
+            try:
+                websocket.close(code=1008, reason="Authentication failed")
+            except Exception:
+                pass
+            return
+        finally:
+            with self._lock:
+                self._pending_clients = max(0, self._pending_clients - 1)
+        with self._lock:
+            if self._clients:
+                try:
+                    websocket.close(code=1008, reason="A client is already connected")
+                except Exception:
+                    pass
+                return
             self._clients[client_id] = {"ws": websocket, "lock": threading.Lock(), "browser": "Chromium"}
         self._emit({"event": "connected", "client_id": client_id})
         recent_messages = deque()
@@ -1064,7 +1165,7 @@ class EscritorAutomatico:
         self._startup_tasks_started = False
         self.update_manager = UpdateManager()
         self.update_preferences = self.update_manager.load_preferences()
-        self.auto_update_var = tk.BooleanVar(master=root, value=self.update_preferences.get("check_on_start", True))
+        self.auto_update_var = tk.BooleanVar(master=root, value=self.update_preferences.get("check_on_start", False))
         self._update_check_running = False
         self._update_download_window = None
         self.web_bridge: WebPageBridge | None = None
@@ -1389,7 +1490,7 @@ class EscritorAutomatico:
             text="La extensión detecta sitios y campos editables. El contenido que ya esté escrito no se transmite al programa.",
             style="Hint.TLabel", wraplength=820,
         ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
-        self.web_connection_var = tk.StringVar(value="Extensión no conectada. Instálala desde la carpeta web_extension.")
+        self.web_connection_var = tk.StringVar(value="Extensión no conectada. Instálala desde la carpeta web_extension y vincúlala con el código de seguridad.")
         ttk.Label(self.web_target_box, textvariable=self.web_connection_var, style="Hint.TLabel", wraplength=820).grid(
             row=1, column=0, columnspan=3, sticky="w", pady=(0, 8)
         )
@@ -1409,6 +1510,7 @@ class EscritorAutomatico:
         web_tools = ttk.Frame(self.web_target_box)
         web_tools.grid(row=4, column=0, columnspan=3, sticky="w", pady=(9, 0))
         ttk.Button(web_tools, text="Abrir carpeta de extensión", command=self.open_web_extension_folder).pack(side="left")
+        ttk.Button(web_tools, text="Copiar código de vinculación", command=self.copy_web_pairing_code).pack(side="left", padx=(8, 0))
         ttk.Label(
             self.web_target_box,
             text="Para campos web comunes se usa la extensión. Google Docs usa teclado real y debe quedar al frente, con el cursor puesto. No funciona en páginas internas del navegador ni en campos protegidos.",
@@ -1698,12 +1800,14 @@ class EscritorAutomatico:
         try:
             if prepared["kind"] == "windows":
                 import subprocess
+                self._verify_prepared_update_hash(prepared)
                 subprocess.Popen([str(prepared["path"])], cwd=str(prepared["path"].parent), close_fds=True)
                 self.close()
                 return
             if prepared["kind"] == "linux":
                 import subprocess
                 import shlex
+                self._verify_prepared_update_hash(prepared)
                 log_path = Path(prepared["root"]) / "update-install.log"
                 # Un proceso independiente espera a que esta aplicación salga antes de
                 # reemplazar la carpeta instalada. No se usa shell para construir rutas
@@ -1724,6 +1828,30 @@ class EscritorAutomatico:
             raise UpdateError("El paquete preparado no corresponde a este sistema operativo.")
         except Exception as exc:
             messagebox.showerror("No se pudo iniciar el instalador", str(exc), parent=self.root)
+
+    @staticmethod
+    def _verify_prepared_update_hash(prepared: dict) -> None:
+        """Recalcula SHA-256 justo antes de ejecutar el paquete preparado."""
+        target = Path(prepared.get("archive") or prepared["path"])
+        expected = prepared.get("sha256", "")
+        if not isinstance(expected, str) or not re.fullmatch(r"[a-fA-F0-9]{64}", expected):
+            raise UpdateError("No hay una suma SHA-256 válida para volver a verificar la actualización.")
+        digest = __import__("hashlib").sha256()
+        with target.open("rb") as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(block)
+        if digest.hexdigest().lower() != expected.lower():
+            raise UpdateError("El archivo de actualización cambió después de la descarga. No se ejecutará.")
+        if prepared.get("kind") == "linux":
+            script_expected = prepared.get("script_sha256", "")
+            if not isinstance(script_expected, str) or not re.fullmatch(r"[a-fA-F0-9]{64}", script_expected):
+                raise UpdateError("No hay una suma SHA-256 válida del instalador Linux extraído.")
+            script_digest = __import__("hashlib").sha256()
+            with Path(prepared["path"]).open("rb") as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    script_digest.update(block)
+            if script_digest.hexdigest().lower() != script_expected.lower():
+                raise UpdateError("El script de instalación Linux cambió después de la extracción. No se ejecutará.")
 
     def _scroll_output_content(self, event):
         """Desplaza solo la pestaña Escritura; no afecta Texto ni Formato."""
@@ -1774,6 +1902,12 @@ class EscritorAutomatico:
         tab = self.web_tab_map.get(label)
         if not tab:
             messagebox.showinfo("Selecciona una página", "Primero selecciona la página web que quieres previsualizar.", parent=self.root)
+            return
+        if not messagebox.askyesno(
+            "Confirmar vista previa",
+            "Se solicitará una captura de la pestaña seleccionada. Asegúrate de que no muestre información privada o sensible. ¿Continuar?",
+            parent=self.root,
+        ):
             return
         if self.web_bridge is None:
             try:
@@ -1896,6 +2030,30 @@ class EscritorAutomatico:
         except Exception as exc:
             messagebox.showerror("No se pudo mostrar la vista previa", str(exc), parent=self.root)
 
+    def copy_web_pairing_code(self):
+        """Inicia el puente y copia el secreto de vinculación para pegarlo en la extensión."""
+        if self.web_bridge is None:
+            bridge = WebPageBridge()
+            try:
+                bridge.start()
+            except Exception as exc:
+                messagebox.showerror("No se pudo iniciar el puente web", str(exc), parent=self.root)
+                return
+            self.web_bridge = bridge
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(self.web_bridge.pairing_code)
+            self.root.update_idletasks()
+            messagebox.showinfo(
+                "Código de vinculación copiado",
+                "Pega este código en el popup de la extensión y pulsa Guardar. "
+                "El código es una credencial local: no lo publiques ni lo compartas.\n\n"
+                + self.web_bridge.pairing_code,
+                parent=self.root,
+            )
+        except Exception as exc:
+            messagebox.showerror("No se pudo copiar el código", str(exc), parent=self.root)
+
     def open_web_extension_folder(self):
         folder = Path(__file__).with_name("web_extension")
         if not folder.is_dir():
@@ -1936,8 +2094,10 @@ class EscritorAutomatico:
                 "1. Abre brave://extensions, chrome://extensions o edge://extensions.\n"
                 "2. Activa el modo de desarrollador.\n"
                 "3. Pulsa 'Cargar descomprimida' y selecciona la carpeta web_extension incluida en el ZIP.\n"
-                "4. Abre o recarga la página web y vuelve aquí a pulsar 'Actualizar páginas'.\n\n"
-                "La extensión necesita permiso para acceder a sitios web HTTP/HTTPS para identificar las pestañas y campos editables.",
+                "4. Pulsa 'Copiar código de vinculación' en Escritor Automático y pégalo en el popup de la extensión.\n"
+                "5. En el popup, pulsa 'Permitir acceso a páginas' y acepta el permiso de sitios que vayas a usar.\n"
+                "6. Vuelve aquí y pulsa 'Actualizar páginas'.\n\n"
+                "La extensión no recibe acceso a páginas hasta que tú lo autorizas desde su popup.",
                 parent=self.root,
             )
             return
@@ -1987,7 +2147,7 @@ class EscritorAutomatico:
         if bridge is not None:
             for _ in range(300):
                 try:
-                    event = bridge.events.get_nowait()
+                    event = bridge.get_event_nowait()
                 except queue.Empty:
                     break
                 try:
@@ -2785,6 +2945,10 @@ class EscritorAutomatico:
         if not path: return
         try:
             suffix = Path(path).suffix.lower()
+            max_file_bytes = 25 * 1024 * 1024
+            file_size = Path(path).stat().st_size
+            if file_size > max_file_bytes:
+                raise ValueError("El archivo supera el límite de 25 MiB para importación. Divide el documento e inténtalo de nuevo.")
             self.editor.delete("1.0", "end")
             self.format_tags.clear(); self._style_tag_cache.clear(); self.paragraph_tags.clear(); self.paragraph_meta.clear(); self._tag_counter = 0
             self.imported_page_setup = None
@@ -2810,15 +2974,26 @@ class EscritorAutomatico:
 
     @staticmethod
     def _html_class_styles(source: str) -> dict[str, str]:
-        """Extrae reglas CSS por clase (Word suele utilizar clases MsoNormal/MsoTitle)."""
+        """Extrae estilos por clase con recorrido lineal y límite de entrada."""
+        MAX_CHARS = 5_000_000
+        if len(source) > MAX_CHARS:
+            source = source[:MAX_CHARS]
         result: dict[str, str] = {}
-        for match in re.finditer(r"([^{}]+)\{([^{}]*)\}", source, flags=re.S):
-            selector_group, declarations = match.group(1).strip(), match.group(2).strip()
-            if selector_group.startswith("@") or not declarations:
+        # Evita una expresión regular sobre el documento completo, cuyo coste puede
+        # crecer de forma cuadrática con HTML/CSS especialmente construido.
+        for chunk in source.split("}")[:-1]:
+            head, brace, declarations = chunk.rpartition("{")
+            if not brace:
+                continue
+            selector_group = head.rpartition("{")[2].strip()
+            declarations = declarations.strip()
+            if not selector_group or selector_group.startswith("@") or not declarations:
                 continue
             for selector in selector_group.split(","):
                 for class_name in re.findall(r"\.([A-Za-z_][\w-]*)", selector):
-                    result[class_name] = ";".join((result.get(class_name, ""), declarations)).strip(";")
+                    result[class_name] = ";".join(
+                        (result.get(class_name, ""), declarations)
+                    ).strip(";")
         return result
 
     def paste_formatted_from_clipboard(self):
@@ -2968,7 +3143,8 @@ class EscritorAutomatico:
         try:
             for relationship in document.part.rels.values():
                 if relationship.reltype.endswith("/theme") and not relationship.is_external:
-                    root = ET.fromstring(relationship.target_part.blob)
+                    from defusedxml.ElementTree import fromstring
+                    root = fromstring(relationship.target_part.blob)
                     for key, path in (("major", ".//a:fontScheme/a:majorFont/a:latin"),
                                       ("minor", ".//a:fontScheme/a:minorFont/a:latin")):
                         node = root.find(path, ns)
@@ -3134,6 +3310,21 @@ class EscritorAutomatico:
                 "Para abrir archivos DOCX instala la dependencia opcional ejecutando "
                 "instalar_dependencias.bat y reinicia la aplicación."
             ) from exc
+        # DOCX es un ZIP. Limita miembros y tamaño descomprimido para reducir riesgos
+        # de archivos comprimidos maliciosos (ZIP bombs) antes de llamar a python-docx.
+        max_members = 5000
+        max_uncompressed = 100 * 1024 * 1024
+        try:
+            with zipfile.ZipFile(path, "r") as package:
+                members = package.infolist()
+                if len(members) > max_members:
+                    raise ValueError("El documento DOCX contiene demasiados componentes.")
+                if sum(max(0, item.file_size) for item in members) > max_uncompressed:
+                    raise ValueError("El documento DOCX supera el límite de 100 MiB descomprimidos.")
+                if any(item.file_size > max_uncompressed for item in members):
+                    raise ValueError("Un componente del DOCX supera el tamaño permitido.")
+        except (zipfile.BadZipFile, OSError) as exc:
+            raise ValueError("El archivo DOCX no es un paquete ZIP válido.") from exc
         document = Document(path)
         self.imported_page_setup = self._extract_page_setup(document)
         self.page_setup = dict(self.imported_page_setup) if self.imported_page_setup else None
@@ -3441,6 +3632,16 @@ class EscritorAutomatico:
         except Exception as exc:
             messagebox.showerror("No se pudo preparar la escritura", str(exc), parent=self.root)
             return
+
+        if web_target is not None:
+            domain = urlsplit(str(web_target.get("url", ""))).hostname or "sitio web"
+            if not messagebox.askyesno(
+                "Confirmar escritura web",
+                f"Se enviará el texto del editor al campo seleccionado en {domain}. "
+                "Comprueba que sea la pestaña y el campo correctos. ¿Deseas continuar?",
+                parent=self.root,
+            ):
+                return
 
         self.stop_event.clear()
         self.pause_event.set()

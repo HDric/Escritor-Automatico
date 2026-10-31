@@ -3,7 +3,9 @@ ESCRITOR AUTOMÁTICO v1.0.0 — GUÍA POST-INSTALACIÓN (LINUX)
 1. Instala el paquete ejecutando ./instalar_escritor_automatico_linux.sh después de extraer el tar.gz.
 2. Abre la aplicación desde el menú de aplicaciones.
 3. Para usar la extensión, en Brave visita brave://extensions/, en Chrome chrome://extensions/ o en Edge edge://extensions/. Activa el modo de desarrollador y carga la carpeta web_extension que viene dentro de la instalación en ~/.local/opt/escritor-automatico/web_extension.
-4. Deja abierta la aplicación de escritorio, selecciona “Página web”, pulsa “Actualizar páginas” y autoriza el acceso a páginas web en el navegador.
+4. Deja abierta la aplicación de escritorio, selecciona “Página web” y pulsa “Copiar código de vinculación”.
+5. Abre el popup de la extensión, pega el código y pulsa “Guardar código y vincular”. Después, pulsa “Permitir acceso a páginas” y acepta el permiso del navegador.
+6. Regresa a la aplicación y pulsa “Actualizar páginas”.
 5. En Linux, usa preferiblemente sesión X11/Xorg para la escritura de teclado. Wayland puede limitar la inyección global de eventos por seguridad.
 
 El paquete de aplicación incluye Python y las dependencias; no necesitas instalar Python. La extensión se carga manualmente una vez por perfil del navegador.

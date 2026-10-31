@@ -7,3 +7,5 @@ pywin32==312; sys_platform == "win32"
 websockets==17.3
 Pillow==13.0.0
 pynput==1.8.2; sys_platform == "linux"
+cryptography==50.0.2
+defusedxml==0.7.1
