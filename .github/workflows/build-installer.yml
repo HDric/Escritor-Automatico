@@ -9,7 +9,6 @@ on:
     branches:
       - main
       - master
-      - beta/v1.0.2
     tags:
       - 'v*'
       
@@ -61,9 +60,8 @@ jobs:
       - name: Instalar dependencia Ed25519 para las pruebas
         shell: pwsh
         run: |
-          # Las pruebas se ejecutan antes de CREAR_INSTALADOR.bat, que crea su propio
-          # entorno virtual e instala requirements.txt. Por eso se instala aquí la
-          # dependencia criptográfica fijada que necesita la verificación Ed25519.
+          # Las pruebas usan el Python global del runner y se ejecutan antes de CREAR_INSTALADOR.bat.
+          # Se instala cryptography aquí para que la verificación Ed25519 esté disponible.
           py -3.12 -m pip install --disable-pip-version-check --only-binary=:all: "cryptography==50.0.2"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           py -3.12 -c "from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey; print('Ed25519 disponible:', Ed25519PublicKey.__name__)"
