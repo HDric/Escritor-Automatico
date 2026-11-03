@@ -253,10 +253,33 @@ jobs:
           VERSION="$(python3 -c 'import json; print(json.load(open("version.json", encoding="utf-8"))["version"])')"
           [[ "$GITHUB_REF_NAME" == "v$VERSION" ]] || { echo "Etiqueta y version.json no coinciden" >&2; exit 1; }
           mkdir -p release-assets/final
-          cp "release-assets/windows/EscritorAutomatico-Setup-v${VERSION}.exe" release-assets/final/
-          cp "release-assets/linux/EscritorAutomatico-v${VERSION}-linux-x86_64.tar.gz" release-assets/final/
-          cp release-assets/windows/sbom-runtime.cdx.json release-assets/final/
-          cp release-assets/windows/sbom-build.cdx.json release-assets/final/
+
+          # actions/upload-artifact conserva la estructura relativa de los archivos subidos.
+          # Por eso no asumimos que los instaladores estén en la raíz de release-assets/windows
+          # o release-assets/linux; los localizamos por nombre exacto.
+          find_one_asset() {
+            local root="$1"
+            local name="$2"
+            local -a matches=()
+            mapfile -t matches < <(find "$root" -type f -name "$name" -print)
+            if [[ "${#matches[@]}" -ne 1 ]]; then
+              echo "ERROR: se esperaba exactamente un archivo '$name' dentro de '$root'; encontrados: ${#matches[@]}" >&2
+              echo "Archivos disponibles en $root:" >&2
+              find "$root" -type f -print 2>/dev/null | sort >&2 || true
+              return 1
+            fi
+            printf '%s\n' "${matches[0]}"
+          }
+
+          WINDOWS_SETUP="$(find_one_asset release-assets/windows "EscritorAutomatico-Setup-v${VERSION}.exe")"
+          LINUX_PACKAGE="$(find_one_asset release-assets/linux "EscritorAutomatico-v${VERSION}-linux-x86_64.tar.gz")"
+          WINDOWS_SBOM_RUNTIME="$(find_one_asset release-assets/windows sbom-runtime.cdx.json)"
+          WINDOWS_SBOM_BUILD="$(find_one_asset release-assets/windows sbom-build.cdx.json)"
+
+          cp "$WINDOWS_SETUP" release-assets/final/
+          cp "$LINUX_PACKAGE" release-assets/final/
+          cp "$WINDOWS_SBOM_RUNTIME" release-assets/final/
+          cp "$WINDOWS_SBOM_BUILD" release-assets/final/
           python3 - <<'PY'
           from pathlib import Path
           from zipfile import ZIP_DEFLATED, ZipFile
