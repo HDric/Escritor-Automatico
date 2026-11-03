@@ -21,10 +21,13 @@ import urllib.request
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from update_security import verify_release_manifest
+
 PRODUCT_SLUG = "EscritorAutomatico"
 USER_AGENT = "EscritorAutomatico-Updater"
 MAX_API_BYTES = 2 * 1024 * 1024
 MAX_CHECKSUM_BYTES = 64 * 1024
+MAX_SIGNATURE_BYTES = 4096
 MAX_INSTALLER_BYTES = 512 * 1024 * 1024
 MAX_TAR_MEMBERS = 15000
 MAX_TAR_UNPACKED_BYTES = 900 * 1024 * 1024
@@ -40,6 +43,24 @@ ASSET_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 class UpdateError(RuntimeError):
     """Problema de conexión, configuración o verificación de actualización."""
+
+
+class _GitHubRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Valida cada salto de redirección antes de realizar la siguiente petición."""
+    ALLOWED_HOSTS = {"api.github.com", *ALLOWED_REDIRECT_HOSTS}
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        parsed = urllib.parse.urlsplit(newurl)
+        if (parsed.scheme != "https" or (parsed.hostname or "").lower() not in self.ALLOWED_HOSTS
+                or parsed.username is not None or parsed.password is not None
+                or parsed.port not in (None, 443) or parsed.fragment):
+            raise UpdateError("Se rechazó una redirección a un servidor no permitido.")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _open_github_url(request, timeout: int):
+    opener = urllib.request.build_opener(_GitHubRedirectHandler())
+    return opener.open(request, timeout=timeout)
 
 
 def resource_dir() -> Path:
@@ -127,7 +148,8 @@ class UpdateManager:
             )
         data = read_json_object(path)
         repo = data.get("repository", "")
-        if not isinstance(repo, str) or not REPO_RE.fullmatch(repo.strip()):
+        if (not isinstance(repo, str) or not REPO_RE.fullmatch(repo.strip())
+                or any(part in (".", "..") for part in repo.strip().split("/"))):
             raise UpdateError(
                 "El repositorio de actualizaciones no está configurado. "
                 "La compilación publicada debe incluir OWNER/REPOSITORY en update_config.json."
@@ -136,19 +158,19 @@ class UpdateManager:
 
     def load_preferences(self) -> dict[str, Any]:
         defaults: dict[str, Any] = {
-            "check_on_start": True, "ignored_versions": [],
+            "check_on_start": False, "ignored_versions": [],
             "snoozed_version": "", "snoozed_until": 0.0,
         }
         try:
             data = read_json_object(self._prefs_path)
         except UpdateError:
             return defaults
-        check_on_start = data.get("check_on_start", True)
+        check_on_start = data.get("check_on_start", False)
         ignored = data.get("ignored_versions", [])
         snoozed_version = data.get("snoozed_version", "")
         snoozed_until = data.get("snoozed_until", 0.0)
         if not isinstance(check_on_start, bool):
-            check_on_start = True
+            check_on_start = False
         if not isinstance(ignored, list):
             ignored = []
         ignored = [v for v in ignored if isinstance(v, str) and VERSION_RE.fullmatch(v)][:100]
@@ -162,12 +184,12 @@ class UpdateManager:
         }
 
     def save_preferences(self, preferences: dict[str, Any]) -> None:
-        check_on_start = preferences.get("check_on_start", True)
+        check_on_start = preferences.get("check_on_start", False)
         ignored = preferences.get("ignored_versions", [])
         snoozed_version = preferences.get("snoozed_version", "")
         snoozed_until = preferences.get("snoozed_until", 0.0)
         if not isinstance(check_on_start, bool):
-            check_on_start = True
+            check_on_start = False
         if not isinstance(ignored, list):
             ignored = []
         safe_ignored = [v for v in ignored if isinstance(v, str) and VERSION_RE.fullmatch(v)][:100]
@@ -199,8 +221,10 @@ class UpdateManager:
     @staticmethod
     def _request(url: str, max_bytes: int) -> bytes:
         parsed = urllib.parse.urlsplit(url)
-        if parsed.scheme != "https" or not parsed.hostname:
-            raise UpdateError("La dirección de actualización no usa HTTPS.")
+        if (parsed.scheme != "https" or not parsed.hostname or parsed.username is not None
+                or parsed.password is not None or parsed.port not in (None, 443)
+                or parsed.fragment):
+            raise UpdateError("La dirección de actualización no usa HTTPS o contiene componentes no permitidos.")
         host = parsed.hostname.lower()
         if host not in ({"api.github.com"} | ALLOWED_REDIRECT_HOSTS):
             raise UpdateError("Se rechazó una dirección de descarga fuera de GitHub.")
@@ -214,7 +238,7 @@ class UpdateManager:
             method="GET",
         )
         try:
-            with urllib.request.urlopen(request, timeout=12) as response:
+            with _open_github_url(request, timeout=12) as response:
                 final = urllib.parse.urlsplit(response.geturl())
                 if final.scheme != "https" or (final.hostname or "").lower() not in ({"api.github.com"} | ALLOWED_REDIRECT_HOSTS):
                     raise UpdateError("La descarga fue redirigida a un servidor no permitido.")
@@ -254,7 +278,12 @@ class UpdateManager:
             raise UpdateError("La última Release no usa una etiqueta de versión X.Y.Z (por ejemplo, v1.0.0).") from exc
         html_url = payload.get("html_url")
         parsed_release_url = urllib.parse.urlsplit(html_url or "")
-        if parsed_release_url.scheme != "https" or parsed_release_url.hostname != "github.com":
+        expected_release_path = f"/{repo}/releases/tag/{tag}"
+        if (parsed_release_url.scheme != "https" or parsed_release_url.hostname != "github.com"
+                or parsed_release_url.username is not None or parsed_release_url.password is not None
+                or parsed_release_url.port not in (None, 443)
+                or parsed_release_url.path != expected_release_path
+                or parsed_release_url.query or parsed_release_url.fragment):
             raise UpdateError("La Release contiene una dirección web que no es válida.")
         assets = payload.get("assets", [])
         if not isinstance(assets, list):
@@ -270,11 +299,16 @@ class UpdateManager:
             except (TypeError, ValueError):
                 continue
             parsed_asset = urllib.parse.urlsplit(download_url or "")
+            expected_asset_path = f"/{repo}/releases/download/{tag}/{name}" if isinstance(name, str) else ""
             if (
                 isinstance(name, str)
                 and ASSET_NAME_RE.fullmatch(name)
                 and parsed_asset.scheme == "https"
-                and parsed_asset.hostname == "github.com"
+                and (parsed_asset.hostname or "").lower() == "github.com"
+                and parsed_asset.username is None and parsed_asset.password is None
+                and parsed_asset.port in (None, 443)
+                and parsed_asset.path == expected_asset_path
+                and not parsed_asset.query and not parsed_asset.fragment
                 and size >= 0
                 and size <= MAX_INSTALLER_BYTES
             ):
@@ -304,25 +338,30 @@ class UpdateManager:
 
     @staticmethod
     def _find_checksum(checksum_text: str, asset_name: str) -> str:
+        matches = []
         for line in checksum_text.splitlines():
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
-            match = re.match(r"^([A-Fa-f0-9]{64})\s+\*?(.+?)\s*$", line)
-            if match and match.group(2).strip() == asset_name:
-                return match.group(1).lower()
-        raise UpdateError(f"La lista de sumas no contiene el SHA-256 de {asset_name}.")
+            match = re.fullmatch(r"([A-Fa-f0-9]{64})\s+\*?([A-Za-z0-9._-]+)", line)
+            if match and match.group(2) == asset_name:
+                matches.append(match.group(1).lower())
+        if len(matches) != 1:
+            raise UpdateError(f"La lista de sumas debe incluir exactamente una entrada SHA-256 para {asset_name}.")
+        return matches[0]
 
     @staticmethod
     def _download_to_file(url: str, target: Path, max_bytes: int) -> None:
         parsed = urllib.parse.urlsplit(url)
-        if parsed.scheme != "https" or parsed.hostname != "github.com":
-            raise UpdateError("La URL del instalador no pertenece a github.com.")
+        if (parsed.scheme != "https" or parsed.hostname != "github.com"
+                or parsed.username is not None or parsed.password is not None
+                or parsed.port not in (None, 443) or parsed.fragment):
+            raise UpdateError("La URL del instalador no pertenece a github.com o contiene componentes no permitidos.")
         request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/octet-stream"})
         target.parent.mkdir(parents=True, exist_ok=True)
         temporary = target.with_name(target.name + ".part")
         try:
-            with urllib.request.urlopen(request, timeout=20) as response:
+            with _open_github_url(request, timeout=20) as response:
                 final = urllib.parse.urlsplit(response.geturl())
                 if final.scheme != "https" or (final.hostname or "").lower() not in ALLOWED_REDIRECT_HOSTS:
                     raise UpdateError("La descarga del instalador fue redirigida a un host no permitido.")
@@ -356,13 +395,36 @@ class UpdateManager:
         assets = release.get("assets", [])
         asset = next((a for a in assets if a.get("name") == asset_name), None)
         checksum_asset = next((a for a in assets if a.get("name") == "SHA256SUMS.txt"), None)
+        signature_asset = next((a for a in assets if a.get("name") == "SHA256SUMS.txt.sig"), None)
         if not asset:
             raise UpdateError(f"La Release {release.get('tag')} no contiene el instalador esperado: {asset_name}.")
-        if not checksum_asset:
-            raise UpdateError("La Release no incluye SHA256SUMS.txt; se rechazó la descarga por seguridad.")
+        if not checksum_asset or not signature_asset:
+            raise UpdateError("La Release no incluye manifiesto y firma Ed25519; se rechazó la descarga.")
         if int(asset.get("size", 0)) > MAX_INSTALLER_BYTES:
             raise UpdateError("El instalador supera el tamaño máximo permitido.")
+
+        repository = release.get("repository", "")
+        tag = release.get("tag", "")
+        if (not isinstance(repository, str) or not REPO_RE.fullmatch(repository)
+                or any(part in (".", "..") for part in repository.split("/"))):
+            raise UpdateError("La Release no identifica un repositorio válido.")
+        if not isinstance(tag, str) or tag != f"v{version}":
+            raise UpdateError("La etiqueta de la Release no coincide exactamente con su versión.")
+        expected_prefix = f"https://github.com/{repository}/releases/download/{tag}/"
+        for item, expected_name in ((asset, asset_name), (checksum_asset, "SHA256SUMS.txt"),
+                                    (signature_asset, "SHA256SUMS.txt.sig")):
+            parsed = urllib.parse.urlsplit(str(item.get("url", "")))
+            if (parsed.scheme != "https" or parsed.hostname != "github.com"
+                    or parsed.username is not None or parsed.password is not None
+                    or parsed.port not in (None, 443)
+                    or parsed.path != expected_prefix.split("github.com", 1)[1] + expected_name
+                    or parsed.query or parsed.fragment):
+                raise UpdateError(f"La URL de {expected_name} no coincide con la ruta oficial de la Release.")
+
         checksum_raw = self._request(checksum_asset["url"], MAX_CHECKSUM_BYTES)
+        signature_raw = self._request(signature_asset["url"], MAX_SIGNATURE_BYTES)
+        if not verify_release_manifest(checksum_raw, signature_raw):
+            raise UpdateError("La firma Ed25519 del manifiesto no es válida. No se descargará ni ejecutará el instalador.")
         try:
             checksum_text = checksum_raw.decode("utf-8")
         except UnicodeError as exc:
@@ -370,11 +432,29 @@ class UpdateManager:
         expected_hash = self._find_checksum(checksum_text, asset_name)
 
         cache_base = user_cache_dir()
-        cache_base.mkdir(parents=True, exist_ok=True)
+        cache_base.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            os.chmod(cache_base, 0o700)
+        except OSError:
+            pass
         version_dir = cache_base / f"v{version}"
-        version_dir.mkdir(parents=True, exist_ok=True)
+        if version_dir.is_symlink():
+            raise UpdateError("La carpeta de caché de actualización no puede ser un enlace simbólico.")
+        # Mantiene una sola carpeta de versión para evitar que el caché crezca indefinidamente.
+        for old_dir in cache_base.iterdir():
+            if (old_dir != version_dir and old_dir.is_dir() and not old_dir.is_symlink()
+                    and (re.fullmatch(r"v\d+\.\d+\.\d+", old_dir.name)
+                         or old_dir.name.startswith("prepared-v"))):
+                shutil.rmtree(old_dir, ignore_errors=True)
+        version_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if version_dir.resolve().parent != cache_base.resolve():
+            raise UpdateError("La carpeta de versión sale de la ubicación de caché permitida.")
         download_path = version_dir / asset_name
         self._download_to_file(asset["url"], download_path, MAX_INSTALLER_BYTES)
+        try:
+            os.chmod(download_path, 0o600)
+        except OSError:
+            pass
         sha = hashlib.sha256()
         with download_path.open("rb") as src:
             for block in iter(lambda: src.read(1024 * 1024), b""):
@@ -402,6 +482,7 @@ class UpdateManager:
             shutil.rmtree(extract_dir, ignore_errors=True)
             raise UpdateError("El paquete Linux no contiene el instalador y el ejecutable esperados.")
         installer_script.chmod(installer_script.stat().st_mode | stat.S_IXUSR)
+        script_digest = hashlib.sha256(installer_script.read_bytes()).hexdigest()
         return {
             "kind": "linux",
             "path": installer_script,
@@ -409,6 +490,7 @@ class UpdateManager:
             "archive": download_path,
             "version": version,
             "sha256": expected_hash,
+            "script_sha256": script_digest,
         }
 
     @staticmethod

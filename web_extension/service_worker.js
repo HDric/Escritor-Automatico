@@ -29,6 +29,7 @@ function isValidBridgeCommand(message) {
   return false;
 }
 let bridgeSocket = null;
+let bridgeAuthenticated = false;
 let reconnectDelay = 1000;
 let reconnectTimer = null;
 let heartbeatTimer = null;
@@ -65,7 +66,7 @@ async function browserName() {
 }
 
 function bridgeSend(payload) {
-  if (!bridgeSocket || bridgeSocket.readyState !== WebSocket.OPEN) return false;
+  if (!bridgeAuthenticated || !bridgeSocket || bridgeSocket.readyState !== WebSocket.OPEN) return false;
   try {
     bridgeSocket.send(JSON.stringify(payload));
     return true;
@@ -74,36 +75,113 @@ function bridgeSend(payload) {
   }
 }
 
-function connectBridge() {
-  if (bridgeSocket && (bridgeSocket.readyState === WebSocket.OPEN || bridgeSocket.readyState === WebSocket.CONNECTING)) return;
+function decodeBase64Url(value) {
+  const padded = String(value).replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - String(value).length % 4) % 4);
+  const binary = atob(padded);
+  return Uint8Array.from(binary, character => character.charCodeAt(0));
+}
+
+function encodeBase64Url(bytes) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function concatBytes(...arrays) {
+  const result = new Uint8Array(arrays.reduce((total, array) => total + array.length, 0));
+  let offset = 0;
+  for (const array of arrays) { result.set(array, offset); offset += array.length; }
+  return result;
+}
+
+async function hmacProof(secret, label, serverNonce, clientNonce) {
+  const key = await crypto.subtle.importKey("raw", secret, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const prefix = new TextEncoder().encode(`EscritorAutomatico-Bridge-${label}-v1\0`);
+  const data = concatBytes(prefix, serverNonce, clientNonce);
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, data));
+}
+
+async function handleSocketAuthentication(socket, message, state) {
+  if (!state.secret || !message || typeof message !== "object") return false;
+  if (message.type === "auth_challenge" && !state.pending) {
+    const serverNonce = decodeBase64Url(message.nonce);
+    if (serverNonce.length !== 32) return false;
+    const clientNonce = crypto.getRandomValues(new Uint8Array(32));
+    const proof = await hmacProof(state.secret, "Client", serverNonce, clientNonce);
+    state.pending = { serverNonce, clientNonce };
+    socket.send(JSON.stringify({ type: "auth_response", client_nonce: encodeBase64Url(clientNonce), proof: encodeBase64Url(proof) }));
+    return true;
+  }
+  if (message.type === "auth_ok" && state.pending) {
+    const received = decodeBase64Url(message.proof);
+    const expected = await hmacProof(state.secret, "Server", state.pending.serverNonce, state.pending.clientNonce);
+    if (received.length !== expected.length || !received.every((value, index) => value === expected[index])) return false;
+    if (bridgeSocket !== socket || socket.readyState !== WebSocket.OPEN) return false;
+    state.authenticated = true;
+    bridgeAuthenticated = true;
+    state.pending = null;
+    reconnectDelay = 1000;
+    const browser = await browserName();
+    if (bridgeSocket !== socket || socket.readyState !== WebSocket.OPEN) {
+      state.authenticated = false;
+      bridgeAuthenticated = false;
+      return false;
+    }
+    bridgeSend({ type: "hello", browser, version: chrome.runtime.getManifest().version });
+    requestTabRefresh();
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    heartbeatTimer = setInterval(() => bridgeSend({ type: "heartbeat", timestamp: Date.now() }), 20000);
+    return true;
+  }
+  return false;
+}
+
+let bridgeConnecting = false;
+async function connectBridge() {
+  if (bridgeConnecting || (bridgeSocket && (bridgeSocket.readyState === WebSocket.OPEN || bridgeSocket.readyState === WebSocket.CONNECTING))) return;
+  bridgeConnecting = true;
+  let secret;
+  try {
+    const stored = await chrome.storage.local.get("bridgePairingCode");
+    secret = decodeBase64Url(stored?.bridgePairingCode || "");
+    if (secret.length !== 32) throw new Error("Pairing code missing");
+    const permission = await chrome.permissions.contains({
+      permissions: ["tabs", "scripting", "webNavigation"], origins: ["http://*/*", "https://*/*"]
+    });
+    if (!permission) throw new Error("Page permissions not granted");
+  } catch (_error) {
+    bridgeConnecting = false;
+    scheduleReconnect();
+    return;
+  }
+  bridgeConnecting = false;
   try {
     bridgeSocket = new WebSocket(BRIDGE_URL);
   } catch (_error) {
     scheduleReconnect();
     return;
   }
-  bridgeSocket.onopen = async () => {
-    const socket = bridgeSocket;
-    reconnectDelay = 1000;
-    const browser = await browserName();
-    // The socket can close while Brave's detection API is being queried.
-    if (!socket || bridgeSocket !== socket || socket.readyState !== WebSocket.OPEN) return;
-    bridgeSend({ type: "hello", browser, version: chrome.runtime.getManifest().version });
-    requestTabRefresh();
-    if (heartbeatTimer) clearInterval(heartbeatTimer);
-    // A regular heartbeat helps keep the MV3 service worker active while Python is connected.
-    heartbeatTimer = setInterval(() => bridgeSend({ type: "heartbeat", timestamp: Date.now() }), 20000);
-  };
-  bridgeSocket.onmessage = event => {
+  const socket = bridgeSocket;
+  bridgeAuthenticated = false;
+  const authState = { secret, pending: null, authenticated: false };
+  socket.onopen = () => { reconnectDelay = 1000; };
+  socket.onmessage = event => {
     let message;
     try { message = JSON.parse(event.data); } catch (_error) { return; }
+    if (!authState.authenticated) {
+      void handleSocketAuthentication(socket, message, authState).then(ok => {
+        if (!ok) { try { socket.close(1008, "Authentication failed"); } catch (_error) { /* ignore */ } }
+      }).catch(() => { try { socket.close(1008, "Authentication failed"); } catch (_error) { /* ignore */ } });
+      return;
+    }
     void handleBridgeCommand(message);
   };
-  bridgeSocket.onerror = () => {
-    try { bridgeSocket?.close(); } catch (_error) { /* ignore */ }
+  socket.onerror = () => {
+    try { socket.close(); } catch (_error) { /* ignore */ }
   };
-  bridgeSocket.onclose = () => {
-    bridgeSocket = null;
+  socket.onclose = () => {
+    if (bridgeSocket === socket) bridgeSocket = null;
+    bridgeAuthenticated = false;
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     heartbeatTimer = null;
     scheduleReconnect();
@@ -151,6 +229,16 @@ async function scanFrame(tabId, frameId) {
   }
 }
 
+async function sanitizedPageUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+    if (!(["http:", "https:"].includes(url.protocol))) return "";
+    url.search = "";
+    url.hash = "";
+    return url.href.slice(0, 2048);
+  } catch (_error) { return ""; }
+}
+
 async function scanTab(tab, force = false) {
   if (!tab || !Number.isInteger(tab.id) || !/^https?:\/\//i.test(tab.url || "")) return null;
   const cached = tabCache.get(tab.id);
@@ -180,7 +268,7 @@ async function scanTab(tab, force = false) {
     tabId: tab.id,
     windowId: tab.windowId,
     title: tab.title || "Página sin título",
-    url: tab.url || "",
+    url: sanitizedPageUrl(tab.url || ""),
     active: Boolean(tab.active),
     fields: fieldsByFrame.flat().slice(0, 150),
     frameCount: frames.length
@@ -190,6 +278,8 @@ async function scanTab(tab, force = false) {
 }
 
 async function refreshTabs(force = false) {
+  const permitted = await chrome.permissions.contains({ permissions: ["tabs", "scripting", "webNavigation"], origins: ["http://*/*", "https://*/*"] });
+  if (!permitted) return;
   if (refreshing) {
     if (force) pendingForceRefresh = true;
     return;
@@ -256,7 +346,7 @@ async function handleBridgeCommand(message) {
       const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 62 });
       bridgeSend({ type: "preview_image", request_id: String(message.request_id || ""),
         client_id: String(message.client_id || ""), selected_field_id: String(message.selected_field_id || ""),
-        tab_id: tabId, title: currentTab.title || "Página web", url: currentTab.url || "",
+        tab_id: tabId, title: currentTab.title || "Página web", url: await sanitizedPageUrl(currentTab.url || ""),
         fields: freshScan?.fields || [], data_url: dataUrl });
     } catch (error) {
       bridgeSend({ type: "preview_error", request_id: String(message.request_id || ""),
@@ -295,6 +385,15 @@ async function handleBridgeCommand(message) {
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, _sendResponse) => {
+  if (message?.type === "extension_pairing_updated") {
+    try { bridgeSocket?.close(); } catch (_error) { /* ignore */ }
+    bridgeSocket = null;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    void connectBridge();
+    try { _sendResponse({ ok: true }); } catch (_error) { /* popup may have closed */ }
+    return true;
+  }
   if (message?.type === "web_progress" || message?.type === "job_done" || message?.type === "job_error") {
     bridgeSend(message);
   }
@@ -305,6 +404,7 @@ chrome.runtime.onMessage.addListener((message, _sender, _sendResponse) => {
   }
 });
 
+chrome.permissions.onAdded.addListener(() => { void connectBridge(); });
 chrome.tabs.onCreated.addListener(debouncedRefresh);
 chrome.tabs.onRemoved.addListener(tabId => {
   tabCache.delete(tabId);

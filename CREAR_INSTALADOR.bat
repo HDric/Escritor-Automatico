@@ -39,19 +39,21 @@ if not defined APP_VERSION (
 set "SETUP_FILE=%CD%\dist-installer\EscritorAutomatico-Setup-v%APP_VERSION%.exe"
 >>"%LOG%" echo Version de compilacion: %APP_VERSION%
 
-rem Busca ISCC en PATH y en las ubicaciones habituales de Inno Setup 6/7.
-for /f "delims=" %%I in ('where ISCC.exe 2^>nul') do if not defined ISCC set "ISCC=%%I"
-if not defined ISCC if exist "%ProgramFiles(x86)%\Inno Setup 7\ISCC.exe" set "ISCC=%ProgramFiles(x86)%\Inno Setup 7\ISCC.exe"
-if not defined ISCC if exist "%ProgramFiles%\Inno Setup 7\ISCC.exe" set "ISCC=%ProgramFiles%\Inno Setup 7\ISCC.exe"
-if not defined ISCC if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
+rem Usa solo la ruta absoluta de Inno Setup 6; no busca ejecutables en el directorio del proyecto ni en PATH.
+if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
 if not defined ISCC if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles%\Inno Setup 6\ISCC.exe"
 if not defined ISCC (
-  echo ERROR: No se encontro ISCC.exe de Inno Setup 6 o 7.
+  echo ERROR: No se encontro ISCC.exe de Inno Setup 6.7.1 en Program Files.
   echo Instala Inno Setup desde https://jrsoftware.org/isinfo.php y repite.
   goto :error
 )
 echo Compilador encontrado: "%ISCC%"
 >>"%LOG%" echo Inno Setup: %ISCC%
+powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "tools\verify_inno_setup.ps1" -CompilerPath "%ISCC%" -RequiredVersion "6.7.1" >>"%LOG%" 2>&1
+if errorlevel 1 (
+  echo ERROR: Se esperaba Inno Setup 6.7.1. Revisa BUILD_INSTALADOR.log.
+  goto :error
+)
 
  echo.
 echo [1/6] Validando el proyecto y la extension...

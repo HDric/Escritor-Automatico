@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
-from updater import UpdateError, UpdateManager, parse_version, version_is_newer
+from updater import UpdateError, UpdateManager, _GitHubRedirectHandler, parse_version, version_is_newer
 
 
 class UpdateVersionTests(unittest.TestCase):
@@ -32,6 +32,36 @@ class UpdateVersionTests(unittest.TestCase):
             UpdateManager.expected_asset_name("1.0.0", "Linux"),
             "EscritorAutomatico-v1.0.0-linux-x86_64.tar.gz",
         )
+
+
+    def test_rejects_dot_components_in_repository(self):
+        manager = UpdateManager()
+        with tempfile.TemporaryDirectory() as td:
+            config = Path(td) / "update_config.json"
+            config.write_text('{"repository":"../repo"}', encoding="utf-8")
+            with patch("updater.resource_dir", return_value=Path(td)):
+                with self.assertRaises(UpdateError):
+                    manager._config()
+
+    def test_redirect_handler_rejects_untrusted_destination(self):
+        handler = _GitHubRedirectHandler()
+        request = __import__("urllib.request", fromlist=["Request"]).Request(
+            "https://github.com/owner/repo/releases/download/v1/file.exe"
+        )
+        with self.assertRaises(UpdateError):
+            handler.redirect_request(
+                request, None, 302, "Found", {}, "https://example.invalid/payload"
+            )
+
+    def test_redirect_handler_allows_expected_asset_host(self):
+        handler = _GitHubRedirectHandler()
+        request = __import__("urllib.request", fromlist=["Request"]).Request(
+            "https://github.com/owner/repo/releases/download/v1/file.exe"
+        )
+        redirected = handler.redirect_request(
+            request, None, 302, "Found", {}, "https://objects.githubusercontent.com/payload"
+        )
+        self.assertEqual(redirected.full_url, "https://objects.githubusercontent.com/payload")
 
     def test_checksum_must_match_exact_asset_name(self):
         digest = hashlib.sha256(b"installer").hexdigest()
@@ -68,6 +98,7 @@ class UpdateDownloadTests(unittest.TestCase):
         release_url = "https://github.com/example/escritor/releases/download/v1.0.1/"
         responses = [
             FakeResponse(checksum, release_url + "SHA256SUMS.txt"),
+            FakeResponse(b"valid-ed25519-signature", release_url + "SHA256SUMS.txt.sig"),
             FakeResponse(payload, "https://objects.githubusercontent.com/release-asset"),
         ]
         with tempfile.TemporaryDirectory() as td:
@@ -78,11 +109,13 @@ class UpdateDownloadTests(unittest.TestCase):
                 "assets": [
                     {"name": asset_name, "url": release_url + asset_name, "size": len(payload)},
                     {"name": "SHA256SUMS.txt", "url": release_url + "SHA256SUMS.txt", "size": len(checksum)},
+                    {"name": "SHA256SUMS.txt.sig", "url": release_url + "SHA256SUMS.txt.sig", "size": 64},
                 ],
+                "repository": "example/escritor",
             }
             with patch("updater.user_cache_dir", return_value=cache), patch(
-                "updater.urllib.request.urlopen", side_effect=responses
-            ):
+                "updater.verify_release_manifest", return_value=True
+            ), patch("updater._open_github_url", side_effect=responses):
                 prepared = UpdateManager().download_and_prepare(release, os_name="Windows")
             self.assertEqual(prepared["kind"], "windows")
             self.assertEqual(prepared["sha256"], digest)
@@ -95,21 +128,49 @@ class UpdateDownloadTests(unittest.TestCase):
         release_url = "https://github.com/example/escritor/releases/download/v1.0.1/"
         responses = [
             FakeResponse(checksum, release_url + "SHA256SUMS.txt"),
+            FakeResponse(b"valid-ed25519-signature", release_url + "SHA256SUMS.txt.sig"),
             FakeResponse(payload, "https://objects.githubusercontent.com/release-asset"),
         ]
         with tempfile.TemporaryDirectory() as td:
             release = {
-                "version": "1.0.1", "tag": "v1.0.1",
+                "version": "1.0.1", "tag": "v1.0.1", "repository": "example/escritor",
                 "assets": [
                     {"name": asset_name, "url": release_url + asset_name, "size": len(payload)},
                     {"name": "SHA256SUMS.txt", "url": release_url + "SHA256SUMS.txt", "size": len(checksum)},
+                    {"name": "SHA256SUMS.txt.sig", "url": release_url + "SHA256SUMS.txt.sig", "size": 64},
                 ],
             }
             with patch("updater.user_cache_dir", return_value=Path(td) / "cache"), patch(
-                "updater.urllib.request.urlopen", side_effect=responses
-            ):
+                "updater.verify_release_manifest", return_value=True
+            ), patch("updater._open_github_url", side_effect=responses):
                 with self.assertRaisesRegex(UpdateError, "SHA-256 falló"):
                     UpdateManager().download_and_prepare(release, os_name="Windows")
+
+
+    def test_signature_failure_stops_before_installer_download(self):
+        asset_name = "EscritorAutomatico-Setup-v1.0.2.exe"
+        base = "https://github.com/example/escritor/releases/download/v1.0.2/"
+        checksum = ("a" * 64 + "  " + asset_name + "\n").encode("utf-8")
+        responses = [
+            FakeResponse(checksum, base + "SHA256SUMS.txt"),
+            FakeResponse(b"forged-signature", base + "SHA256SUMS.txt.sig"),
+        ]
+        release = {
+            "version": "1.0.2", "tag": "v1.0.2", "repository": "example/escritor",
+            "assets": [
+                {"name": asset_name, "url": base + asset_name, "size": 120000},
+                {"name": "SHA256SUMS.txt", "url": base + "SHA256SUMS.txt", "size": len(checksum)},
+                {"name": "SHA256SUMS.txt.sig", "url": base + "SHA256SUMS.txt.sig", "size": 64},
+            ],
+        }
+        with patch("updater.verify_release_manifest", return_value=False), patch(
+            "updater._open_github_url", side_effect=responses
+        ) as open_url, patch.object(UpdateManager, "_download_to_file") as download:
+            with self.assertRaisesRegex(UpdateError, "firma Ed25519"):
+                UpdateManager().download_and_prepare(release, os_name="Windows")
+        self.assertEqual(open_url.call_count, 2)
+        download.assert_not_called()
+
 
 
 class SafeLinuxArchiveTests(unittest.TestCase):
