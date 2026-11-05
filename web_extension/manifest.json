@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Escritor automático — puente web (Chrome, Edge y Brave)",
-  "version": "1.3.0",
-  "description": "Extensión compatible con navegadores Chromium. Conecta con Escritor automático para detectar campos web y escribir progresivamente con escaneo y memoria optimizados.",
+  "version": "1.3.1",
+  "description": "Conecta mediante un panel persistente con Escritor Automático para detectar campos web y escribir progresivamente con escaneo y memoria optimizados.",
   "permissions": [
     "storage"
   ],

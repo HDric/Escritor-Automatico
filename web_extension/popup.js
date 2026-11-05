@@ -21,8 +21,8 @@ document.getElementById("savePairing").addEventListener("click", async () => {
     await chrome.storage.local.set({ bridgePairingCode: code });
     const response = await chrome.runtime.sendMessage({ type: "extension_pairing_updated" });
     statusEl.textContent = response?.ok
-      ? "Código guardado. Esperando autenticación con Escritor Automático…"
-      : "Código guardado. Comprueba que Escritor Automático esté abierto y vuelve a intentar.";
+      ? "Código guardado. Ahora abre el panel de conexión y pulsa Conectar."
+      : "Código guardado. Abre el panel de conexión cuando la aplicación esté abierta.";
   } catch (error) {
     statusEl.textContent = `No se pudo guardar el código: ${String(error?.message || error)}`;
   }
@@ -38,10 +38,20 @@ document.getElementById("grantPermissions").addEventListener("click", () => {
       return;
     }
     statusEl.textContent = granted
-      ? "Permisos concedidos. Conectando con Escritor Automático…"
+      ? "Permisos concedidos. Abre el panel de conexión y pulsa Conectar."
       : "No se concedieron permisos. La extensión no escaneará pestañas.";
     if (granted) chrome.runtime.sendMessage({ type: "extension_pairing_updated" });
   });
+});
+
+
+document.getElementById("openConnection").addEventListener("click", async () => {
+  try {
+    await chrome.tabs.create({ url: chrome.runtime.getURL("connection.html") });
+    statusEl.textContent = "Panel abierto. En esa pestaña pulsa Conectar y déjala abierta mientras utilices la escritura web.";
+  } catch (error) {
+    statusEl.textContent = `No se pudo abrir el panel de conexión: ${String(error?.message || error)}`;
+  }
 });
 
 document.getElementById("refresh").addEventListener("click", async () => {

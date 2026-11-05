@@ -6,8 +6,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 EXPECTED_EXTENSION_ID = "gokleoeeegcjpahldnbmepeeokjafodl"
 REQUIRED = ["escritor_automatico.py", "updater.py", "version.json", "update_config.json", "requirements.txt", "requirements-build.txt", "requirements-linux-source.txt", "web_extension/manifest.json",
-            "web_extension/service_worker.js", "web_extension/content.js", "web_extension/popup.html", "web_extension/popup.js",
-            "LEEME.txt", "LEEME_LINUX.txt", "POST_INSTALACION_LINUX.txt", "instalar_escritor_automatico_linux.sh"]
+            "web_extension/service_worker.js", "web_extension/content.js", "web_extension/popup.html", "web_extension/popup.js", "web_extension/connection.html", "web_extension/connection.js",
+            "LEEME.txt", "LEEME_LINUX.txt", "POST_INSTALACION_LINUX.txt", "instalar_escritor_automatico_linux.sh", "tests/test_extension_connection_architecture.py"]
 def fail(msg: str) -> None:
     print(f"[ERROR] {msg}", file=sys.stderr); raise SystemExit(1)
 def main() -> int:
@@ -37,6 +37,11 @@ def main() -> int:
     extension_id = "".join(chr(ord("a") + int(ch, 16)) for ch in digest)
     if extension_id != EXPECTED_EXTENSION_ID: fail(f"ID de extensión inesperado: {extension_id}")
     if f'WEB_EXTENSION_ID = "{EXPECTED_EXTENSION_ID}"' not in source: fail("ID en Python no coincide con el manifiesto.")
+    worker_source = (ROOT / "web_extension/service_worker.js").read_text(encoding="utf-8")
+    connection_source = (ROOT / "web_extension/connection.js").read_text(encoding="utf-8")
+    if "ws://127.0.0.1:8765" not in connection_source: fail("Falta el endpoint WebSocket en connection.js.")
+    if "new WebSocket(" in worker_source: fail("El service worker no debe abrir el WebSocket directamente.")
+    if '"bridge_incoming"' not in worker_source or '"bridge_outgoing"' not in worker_source: fail("Falta la mensajería del puente de conexión.")
     if "_check_for_updates" not in source or "Comprobar actualizaciones automáticamente al iniciar" not in source:
         fail("No se encontró la interfaz de actualización opcional.")
     requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")

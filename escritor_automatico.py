@@ -2046,7 +2046,7 @@ class EscritorAutomatico:
             self.root.update_idletasks()
             messagebox.showinfo(
                 "Código de vinculación copiado",
-                "Pega este código en el popup de la extensión y pulsa Guardar. "
+                "Pega este código en el popup de la extensión y pulsa Guardar. Después abre el panel de conexión, pulsa Conectar y deja esa pestaña abierta mientras uses el modo web. "
                 "El código es una credencial local: no lo publiques ni lo compartas.\n\n"
                 + self.web_bridge.pairing_code,
                 parent=self.root,
@@ -2096,7 +2096,8 @@ class EscritorAutomatico:
                 "3. Pulsa 'Cargar descomprimida' y selecciona la carpeta web_extension incluida en el ZIP.\n"
                 "4. Pulsa 'Copiar código de vinculación' en Escritor Automático y pégalo en el popup de la extensión.\n"
                 "5. En el popup, pulsa 'Permitir acceso a páginas' y acepta el permiso de sitios que vayas a usar.\n"
-                "6. Vuelve aquí y pulsa 'Actualizar páginas'.\n\n"
+                "6. En el popup, pulsa 'Abrir panel de conexión'; en la pestaña nueva, pulsa 'Conectar' y déjala abierta.\n"
+                "7. Vuelve aquí y pulsa 'Actualizar páginas'.\n\n"
                 "La extensión no recibe acceso a páginas hasta que tú lo autorizas desde su popup.",
                 parent=self.root,
             )

@@ -1,4 +1,3 @@
-const BRIDGE_URL = "ws://127.0.0.1:8765";
 const MAX_TEXT_BYTES = 6 * 1024 * 1024;
 const MAX_IDENTIFIER_CHARS = 128;
 
@@ -28,11 +27,6 @@ function isValidBridgeCommand(message) {
   }
   return false;
 }
-let bridgeSocket = null;
-let bridgeAuthenticated = false;
-let reconnectDelay = 1000;
-let reconnectTimer = null;
-let heartbeatTimer = null;
 let refreshTimer = null;
 let refreshing = false;
 let pendingForceRefresh = false;
@@ -42,163 +36,20 @@ const CACHE_TTL_MS = 12000;
 const MAX_FRAMES_PER_TAB = 12;
 const FRAME_SCAN_CONCURRENCY = 4;
 
-async function browserName() {
-  const ua = globalThis.navigator?.userAgent || "";
-  if (/Edg\//i.test(ua)) return "Microsoft Edge";
-  if (/OPR\//i.test(ua)) return "Opera (Chromium)";
-
-  // Prefer Client Hints when available; Brave may intentionally keep a Chrome-like UA.
-  try {
-    const brands = globalThis.navigator?.userAgentData?.brands || [];
-    if (brands.some(item => /brave/i.test(item.brand || ""))) return "Brave";
-  } catch (_error) { /* continue with the other detection path */ }
-
-  // Brave's documented API may also be hidden by privacy settings, so failure is harmless.
-  try {
-    const braveApi = globalThis.navigator?.brave;
-    if (braveApi && typeof braveApi.isBrave === "function" && await braveApi.isBrave()) {
-      return "Brave";
-    }
-  } catch (_error) { /* continue with a generic Chromium label */ }
-
-  if (/Chrome\//i.test(ua)) return "Chromium compatible (Chrome / Edge / Brave)";
-  return "Chromium compatible";
-}
-
+// The WebSocket lives in connection.html (a persistent extension document),
+// not in this MV3 service worker. This avoids Chromium Local Network Access
+// prompts being triggered from a worker without a Document/user gesture.
 function bridgeSend(payload) {
-  if (!bridgeAuthenticated || !bridgeSocket || bridgeSocket.readyState !== WebSocket.OPEN) return false;
   try {
-    bridgeSocket.send(JSON.stringify(payload));
+    void chrome.runtime.sendMessage({ type: "bridge_outgoing", payload }).catch(() => {});
     return true;
   } catch (_error) {
     return false;
   }
 }
 
-function decodeBase64Url(value) {
-  const padded = String(value).replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - String(value).length % 4) % 4);
-  const binary = atob(padded);
-  return Uint8Array.from(binary, character => character.charCodeAt(0));
-}
-
-function encodeBase64Url(bytes) {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
-function concatBytes(...arrays) {
-  const result = new Uint8Array(arrays.reduce((total, array) => total + array.length, 0));
-  let offset = 0;
-  for (const array of arrays) { result.set(array, offset); offset += array.length; }
-  return result;
-}
-
-async function hmacProof(secret, label, serverNonce, clientNonce) {
-  const key = await crypto.subtle.importKey("raw", secret, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const prefix = new TextEncoder().encode(`EscritorAutomatico-Bridge-${label}-v1\0`);
-  const data = concatBytes(prefix, serverNonce, clientNonce);
-  return new Uint8Array(await crypto.subtle.sign("HMAC", key, data));
-}
-
-async function handleSocketAuthentication(socket, message, state) {
-  if (!state.secret || !message || typeof message !== "object") return false;
-  if (message.type === "auth_challenge" && !state.pending) {
-    const serverNonce = decodeBase64Url(message.nonce);
-    if (serverNonce.length !== 32) return false;
-    const clientNonce = crypto.getRandomValues(new Uint8Array(32));
-    const proof = await hmacProof(state.secret, "Client", serverNonce, clientNonce);
-    state.pending = { serverNonce, clientNonce };
-    socket.send(JSON.stringify({ type: "auth_response", client_nonce: encodeBase64Url(clientNonce), proof: encodeBase64Url(proof) }));
-    return true;
-  }
-  if (message.type === "auth_ok" && state.pending) {
-    const received = decodeBase64Url(message.proof);
-    const expected = await hmacProof(state.secret, "Server", state.pending.serverNonce, state.pending.clientNonce);
-    if (received.length !== expected.length || !received.every((value, index) => value === expected[index])) return false;
-    if (bridgeSocket !== socket || socket.readyState !== WebSocket.OPEN) return false;
-    state.authenticated = true;
-    bridgeAuthenticated = true;
-    state.pending = null;
-    reconnectDelay = 1000;
-    const browser = await browserName();
-    if (bridgeSocket !== socket || socket.readyState !== WebSocket.OPEN) {
-      state.authenticated = false;
-      bridgeAuthenticated = false;
-      return false;
-    }
-    bridgeSend({ type: "hello", browser, version: chrome.runtime.getManifest().version });
-    requestTabRefresh();
-    if (heartbeatTimer) clearInterval(heartbeatTimer);
-    heartbeatTimer = setInterval(() => bridgeSend({ type: "heartbeat", timestamp: Date.now() }), 20000);
-    return true;
-  }
-  return false;
-}
-
-let bridgeConnecting = false;
-async function connectBridge() {
-  if (bridgeConnecting || (bridgeSocket && (bridgeSocket.readyState === WebSocket.OPEN || bridgeSocket.readyState === WebSocket.CONNECTING))) return;
-  bridgeConnecting = true;
-  let secret;
-  try {
-    const stored = await chrome.storage.local.get("bridgePairingCode");
-    secret = decodeBase64Url(stored?.bridgePairingCode || "");
-    if (secret.length !== 32) throw new Error("Pairing code missing");
-    const permission = await chrome.permissions.contains({
-      permissions: ["tabs", "scripting", "webNavigation"], origins: ["http://*/*", "https://*/*"]
-    });
-    if (!permission) throw new Error("Page permissions not granted");
-  } catch (_error) {
-    bridgeConnecting = false;
-    scheduleReconnect();
-    return;
-  }
-  bridgeConnecting = false;
-  try {
-    bridgeSocket = new WebSocket(BRIDGE_URL);
-  } catch (_error) {
-    scheduleReconnect();
-    return;
-  }
-  const socket = bridgeSocket;
-  bridgeAuthenticated = false;
-  const authState = { secret, pending: null, authenticated: false };
-  socket.onopen = () => { reconnectDelay = 1000; };
-  socket.onmessage = event => {
-    let message;
-    try { message = JSON.parse(event.data); } catch (_error) { return; }
-    if (!authState.authenticated) {
-      void handleSocketAuthentication(socket, message, authState).then(ok => {
-        if (!ok) { try { socket.close(1008, "Authentication failed"); } catch (_error) { /* ignore */ } }
-      }).catch(() => { try { socket.close(1008, "Authentication failed"); } catch (_error) { /* ignore */ } });
-      return;
-    }
-    void handleBridgeCommand(message);
-  };
-  socket.onerror = () => {
-    try { socket.close(); } catch (_error) { /* ignore */ }
-  };
-  socket.onclose = () => {
-    if (bridgeSocket === socket) bridgeSocket = null;
-    bridgeAuthenticated = false;
-    if (heartbeatTimer) clearInterval(heartbeatTimer);
-    heartbeatTimer = null;
-    scheduleReconnect();
-  };
-}
-
-function scheduleReconnect() {
-  if (reconnectTimer) clearTimeout(reconnectTimer);
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    connectBridge();
-  }, reconnectDelay);
-  reconnectDelay = Math.min(15000, Math.max(1000, reconnectDelay * 1.7));
-}
-
-function requestTabRefresh() {
-  bridgeSend({ type: "refresh_tabs" });
+function requestTabRefresh(force = false) {
+  bridgeSend({ type: "refresh_tabs", force: Boolean(force) });
 }
 
 async function callContentScript(tabId, frameId, message) {
@@ -279,7 +130,10 @@ async function scanTab(tab, force = false) {
 
 async function refreshTabs(force = false) {
   const permitted = await chrome.permissions.contains({ permissions: ["tabs", "scripting", "webNavigation"], origins: ["http://*/*", "https://*/*"] });
-  if (!permitted) return;
+  if (!permitted) {
+    bridgeSend({ type: "tabs_error", error: "Faltan permisos de la extensión. Abre su popup, pulsa 'Permitir acceso a páginas' y acepta los permisos solicitados." });
+    return;
+  }
   if (refreshing) {
     if (force) pendingForceRefresh = true;
     return;
@@ -384,27 +238,43 @@ async function handleBridgeCommand(message) {
   }
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, _sendResponse) => {
-  if (message?.type === "extension_pairing_updated") {
-    try { bridgeSocket?.close(); } catch (_error) { /* ignore */ }
-    bridgeSocket = null;
-    if (reconnectTimer) clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-    void connectBridge();
-    try { _sendResponse({ ok: true }); } catch (_error) { /* popup may have closed */ }
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "bridge_incoming") {
+    const expectedUrl = chrome.runtime.getURL("connection.html");
+    if (sender.id !== chrome.runtime.id || !String(sender.url || "").startsWith(expectedUrl)) {
+      try { sendResponse({ ok: false, error: "Origen de conexión no válido." }); } catch (_error) { /* ignore */ }
+      return false;
+    }
+    void handleBridgeCommand(message.payload).then(() => {
+      try { sendResponse({ ok: true }); } catch (_error) { /* ignore */ }
+    }).catch(error => {
+      try { sendResponse({ ok: false, error: String(error?.message || error) }); } catch (_error) { /* ignore */ }
+    });
     return true;
   }
   if (message?.type === "web_progress" || message?.type === "job_done" || message?.type === "job_error") {
     bridgeSend(message);
+    return false;
+  }
+  if (message?.type === "extension_pairing_updated") {
+    // Notify an already-open connection page. If it is not open yet, the popup
+    // will tell the user to open it and start the connection manually.
+    void chrome.runtime.sendMessage({ type: "bridge_pairing_updated" }).catch(() => {});
+    try { sendResponse({ ok: true }); } catch (_error) { /* popup may have closed */ }
+    return false;
   }
   if (message?.type === "extension_popup_refresh") {
-    const connected = Boolean(bridgeSocket && bridgeSocket.readyState === WebSocket.OPEN);
-    if (connected) requestTabRefresh();
-    try { _sendResponse({ ok: connected }); } catch (_error) { /* popup may have closed */ }
+    void chrome.runtime.sendMessage({ type: "bridge_status_request" }).then(response => {
+      const connected = Boolean(response?.connected);
+      if (connected) requestTabRefresh(true);
+      try { sendResponse({ ok: connected }); } catch (_error) { /* popup may have closed */ }
+    }).catch(() => {
+      try { sendResponse({ ok: false }); } catch (_error) { /* popup may have closed */ }
+    });
+    return true;
   }
 });
 
-chrome.permissions.onAdded.addListener(() => { void connectBridge(); });
 chrome.tabs.onCreated.addListener(debouncedRefresh);
 chrome.tabs.onRemoved.addListener(tabId => {
   tabCache.delete(tabId);
@@ -419,7 +289,4 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     debouncedRefresh();
   }
 });
-chrome.runtime.onInstalled.addListener(() => { connectBridge(); });
-chrome.runtime.onStartup.addListener(() => { connectBridge(); });
-
-connectBridge();
+// The user starts the local WebSocket from connection.html with an explicit click.

@@ -1,3 +1,12 @@
+# Historial de actualizaciones
+
+## v1.0.3
+- Se trasladó la conexión WebSocket desde el service worker de Manifest V3 a una pestaña de conexión persistente de la extensión.
+- La conexión local se inicia mediante un clic explícito del usuario para mejorar la compatibilidad con las restricciones recientes de acceso a la red local/de bucle invertido de Chromium.
+- Se añadieron estados y mensajes de error más claros para diferenciar fallos de conexión, autenticación y permisos.
+- Se conservó la autenticación mutua HMAC-SHA256 y el filtrado del origen de la extensión.
+- Se actualizó la guía de instalación y el preflight de Windows/Linux para validar el nuevo canal.
+
 # Actualizaciones voluntarias
 
 ## v1.0.1 — Optimización de rendimiento

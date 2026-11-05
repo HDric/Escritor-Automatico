@@ -1,9 +1,9 @@
-# Construir los paquetes de Escritor Automático v1.0.0
+# Construir los paquetes de Escritor Automático
 
 La detección del sistema operativo ya está integrada en la aplicación. El flujo de GitHub Actions construye por separado:
 
-- **Windows x64:** `EscritorAutomatico-Setup-v1.0.0.exe`, un instalador tradicional que no exige Python al usuario final.
-- **Linux x86_64:** `EscritorAutomatico-v1.0.0-linux-x86_64.tar.gz`, con el intérprete y dependencias empaquetados por PyInstaller, más `instalar_escritor_automatico_linux.sh` dentro del archivo.
+- **Windows x64:** `EscritorAutomatico-Setup-vX.Y.Z.exe`, un instalador tradicional que no exige Python al usuario final.
+- **Linux x86_64:** `EscritorAutomatico-vX.Y.Z-linux-x86_64.tar.gz`, con el intérprete y dependencias empaquetados por PyInstaller, más `instalar_escritor_automatico_linux.sh` dentro del archivo.
 
 ## Cómo obtenerlos sin instalar Python en el PC de desarrollo
 
@@ -28,24 +28,24 @@ La compilación ocurre en los runners hospedados por GitHub. En Linux, la compil
 El flujo valida sintaxis Python, manifiesto e ID de la extensión, y calcula SHA-256 para cada artefacto. Aun así, el instalador final debe probarse en un Windows real y el paquete Linux en una distribución de destino, ya que no se puede validar aquí la inyección de teclas en el escritorio del usuario.
 
 
-## Publicar la primera versión 1.0.0
+## Publicar una versión estable
 
-Después de subir el código a la rama principal y de confirmar que el flujo de Actions termina correctamente, verifica que `version.json` contenga `1.0.0`. Crea la etiqueta inicial desde Git Bash:
+Después de subir el código a la rama principal y de confirmar que el flujo de Actions termina correctamente, verifica que `version.json` coincida con la versión que vas a publicar. Crea la etiqueta correspondiente desde Git Bash. Para la v1.0.3, por ejemplo:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.0.3
+git push origin v1.0.3
 ```
 
 La etiqueta debe coincidir exactamente con el valor de `version.json`. El flujo publicará una GitHub Release con los instaladores de Windows y Linux y `SHA256SUMS.txt`.
 
 ## Publicar versiones actualizables
 
-La compilación manual genera artefactos de prueba con retención limitada. Para que las aplicaciones instaladas detecten la versión, cambia `version.json` a un nuevo número `X.Y.Z`, publica los cambios en la rama principal y crea una etiqueta igual, por ejemplo:
+La compilación manual genera artefactos de prueba con retención limitada. Para que las aplicaciones instaladas detecten la versión, cambia `version.json` a un nuevo número `X.Y.Z`, publica los cambios en la rama principal y crea una etiqueta igual, por ejemplo, la siguiente versión de corrección:
 
 ```bash
-git tag v1.0.1
-git push origin v1.0.1
+git tag v1.0.4
+git push origin v1.0.4
 ```
 
 El workflow compila ambas plataformas y, al ejecutarse por una etiqueta `v*`, publica una GitHub Release con los instaladores y `SHA256SUMS.txt`. El actualizador solo consulta Releases estables publicadas; no intenta actualizar desde un simple commit de la rama. El usuario siempre debe aceptar la descarga y confirmar por separado la ejecución del instalador.
