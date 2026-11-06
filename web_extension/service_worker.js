@@ -173,6 +173,17 @@ function debouncedRefresh() {
 }
 
 async function handleBridgeCommand(message) {
+  if (message && message.type === "diagnostic_ping") {
+    const diagnosticId = message.diagnostic_id;
+    if (!safeString(diagnosticId, 64)) return;
+    bridgeSend({
+      type: "diagnostic_pong",
+      diagnostic_id: diagnosticId,
+      extension_version: chrome.runtime.getManifest().version,
+      timestamp: Date.now()
+    });
+    return;
+  }
   if (message && message.type === "start_job" && typeof message.text === "string" &&
       new TextEncoder().encode(message.text).length > MAX_TEXT_BYTES) {
     bridgeSend({ type: "job_error", job_id: String(message.job_id || ""),

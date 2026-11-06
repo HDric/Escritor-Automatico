@@ -2,10 +2,13 @@
 
 ## v1.0.3
 - Se trasladó la conexión WebSocket desde el service worker de Manifest V3 a una pestaña de conexión persistente de la extensión.
-- La conexión local se inicia mediante un clic explícito del usuario para mejorar la compatibilidad con las restricciones recientes de acceso a la red local/de bucle invertido de Chromium.
-- Se añadieron estados y mensajes de error más claros para diferenciar fallos de conexión, autenticación y permisos.
+- La conexión local se inicia mediante un clic explícito del usuario para mejorar la compatibilidad con las restricciones de acceso a la red local/de bucle invertido de Chromium.
+- Se corrigió el arranque del socket del servidor local: ahora ejecuta `listen()` antes de entregarlo al servidor WebSocket, evitando que el puerto 8765 figure como iniciado pero rechace conexiones TCP.
+- Se añadieron en la aplicación los botones **Conectar con extensión** y **Probar conexión**.
+- La aplicación ejecuta una prueba de ida y vuelta que confirma la comunicación con el panel y el service worker de la extensión, y muestra el tiempo de respuesta.
+- Se añadieron estados de diagnóstico para distinguir entre servidor local activo, extensión no autenticada, prueba sin respuesta y conexión verificada.
 - Se conservó la autenticación mutua HMAC-SHA256 y el filtrado del origen de la extensión.
-- Se actualizó la guía de instalación y el preflight de Windows/Linux para validar el nuevo canal.
+- Se incrementó la versión independiente de la extensión a 1.3.2 y se añadieron pruebas de diagnóstico al preflight.
 
 # Actualizaciones voluntarias
 

@@ -1,6 +1,6 @@
 # Escritor Automático
 
-**Aplicación de escritorio multiplataforma — Versión 1.0.0**
+**Aplicación de escritorio multiplataforma — Versión 1.0.3**
 
 Escritor Automático es una aplicación de escritorio desarrollada en Python, acompañada de una extensión para navegador. El proyecto busca facilitar las tareas de escritura automatizada mediante una interfaz de escritorio y herramientas complementarias.
 

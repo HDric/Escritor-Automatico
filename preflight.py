@@ -98,7 +98,14 @@ def main() -> int:
         fail("El service worker no debe abrir el WebSocket local; debe hacerlo connection.js.")
     if '"bridge_incoming"' not in worker_source or '"bridge_outgoing"' not in worker_source:
         fail("No se encontró el canal de mensajes entre el panel y el service worker.")
-    print(f"  OK: manifiesto válido e ID de extensión coherente ({extension_id})")
+    if 'message.type === "diagnostic_ping"' not in worker_source or 'type: "diagnostic_pong"' not in worker_source:
+        fail("Falta la respuesta de diagnóstico de ida y vuelta en el service worker.")
+    if '"type": "diagnostic_ping"' not in source or '"diagnostic_pong"' not in source:
+        fail("La aplicación no incluye la comprobación de conexión de ida y vuelta.")
+    extension_version = manifest.get("version")
+    if not isinstance(extension_version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", extension_version):
+        fail("La extensión debe declarar una versión válida en formato X.Y.Z.")
+    print(f"  OK: manifiesto válido, versión de extensión e ID coherentes ({extension_id})")
 
     requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
     for package, version in {

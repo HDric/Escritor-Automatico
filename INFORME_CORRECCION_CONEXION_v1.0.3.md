@@ -15,3 +15,8 @@ En la fuente v1.0.2 revisada, `web_extension/service_worker.js` abría automáti
 ## Validación pendiente en navegador real
 
 Las pruebas automatizadas no pueden confirmar por sí solas la solicitud de permiso Local Network Access, el comportamiento de la conexión WebSocket en Chrome/Edge/Brave, ni la interacción con las páginas del usuario. Debe validarse en al menos un navegador Chromium actualizado y, si se soporta, en los otros navegadores objetivo.
+
+
+## Complemento de diagnóstico desde la aplicación
+
+La revisión funcional posterior detectó que el mensaje "conexión interrumpida" no permitía saber si se había perdido el WebSocket o si el mensaje no estaba atravesando correctamente el service worker. La actualización incorpora botones en la aplicación para iniciar el servidor y ejecutar una prueba de ida y vuelta (`diagnostic_ping` / `diagnostic_pong`). El resultado correcto mide el recorrido de ida y vuelta y muestra el tiempo de respuesta. Si vence el plazo, se identifica que el canal autenticado no completó la respuesta de diagnóstico.
