@@ -25,6 +25,7 @@ import threading
 import time
 import traceback
 import uuid
+import webbrowser
 import zipfile
 from collections import deque
 from urllib.parse import urlsplit
@@ -265,6 +266,7 @@ class WebPageBridge:
     ALLOWED_INBOUND_TYPES = frozenset({
         "hello", "heartbeat", "tabs_result", "tabs_error", "preview_image",
         "preview_error", "job_accepted", "job_error", "web_progress", "job_done",
+        "diagnostic_pong",
     })
 
     def __init__(self):
@@ -277,6 +279,7 @@ class WebPageBridge:
         self._pending_clients = 0
         self.pairing_code = load_or_create_pairing_code(user_config_dir() / "bridge_pairing_code.txt")
         self._server = None
+        self.bound_port: int | None = None
         self._thread: threading.Thread | None = None
         self._ready = threading.Event()
         self.error: str | None = None
@@ -376,6 +379,16 @@ class WebPageBridge:
         if kind == "heartbeat":
             stamp = message.get("timestamp")
             return isinstance(stamp, (int, float)) and not isinstance(stamp, bool) and abs(stamp) <= 10**16 and math.isfinite(stamp)
+        if kind == "diagnostic_pong":
+            diagnostic_id = message.get("diagnostic_id")
+            extension_version = message.get("extension_version", "")
+            stamp = message.get("timestamp")
+            return (
+                cls._bounded_string(diagnostic_id, 64, allow_empty=False)
+                and cls._bounded_string(extension_version, 40)
+                and isinstance(stamp, (int, float)) and not isinstance(stamp, bool)
+                and 0 <= stamp <= 10**16 and math.isfinite(stamp)
+            )
         if kind == "tabs_result":
             tabs = message.get("tabs")
             if not isinstance(tabs, list) or len(tabs) > cls.MAX_TABS:
@@ -444,6 +457,12 @@ class WebPageBridge:
                 if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
                     listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
                 listener.bind((self.HOST, self.PORT))
+                # websockets.sync.server.serve(sock=...) expects an already-listening
+                # socket. bind() alone reserves the port but rejects incoming TCP
+                # connections, which previously surfaced in the extension as a
+                # connection interruption even though start() had returned success.
+                listener.listen(socket.SOMAXCONN)
+                self.bound_port = int(listener.getsockname()[1])
                 with serve(
                     self._handle_client, sock=listener,
                     origins=allowed_origins, max_size=self.MAX_MESSAGE_BYTES,
@@ -1170,6 +1189,8 @@ class EscritorAutomatico:
         self._update_download_window = None
         self.web_bridge: WebPageBridge | None = None
         self.web_client_browsers: dict[str, str] = {}
+        self._pending_web_diagnostic: dict | None = None
+        self._web_bridge_verified = False
         self.web_tab_map: dict[str, dict] = {}
         self.web_field_map: dict[str, dict] = {}
         self.web_active_target: dict | None = None
@@ -1507,15 +1528,24 @@ class EscritorAutomatico:
         web_buttons.grid(row=3, column=2, sticky="w")
         ttk.Button(web_buttons, text="Actualizar páginas", command=self.refresh_web_pages).pack(anchor="w")
         ttk.Button(web_buttons, text="Vista previa de página", command=self.preview_web_page).pack(anchor="w", pady=(5, 0))
+        connection_actions = ttk.Frame(self.web_target_box)
+        connection_actions.grid(row=4, column=0, columnspan=3, sticky="w", pady=(9, 0))
+        ttk.Button(connection_actions, text="Conectar con extensión", command=self.connect_web_extension).pack(side="left")
+        ttk.Button(connection_actions, text="Probar conexión", command=self.test_web_connection).pack(side="left", padx=(8, 0))
         web_tools = ttk.Frame(self.web_target_box)
-        web_tools.grid(row=4, column=0, columnspan=3, sticky="w", pady=(9, 0))
+        web_tools.grid(row=5, column=0, columnspan=3, sticky="w", pady=(7, 0))
         ttk.Button(web_tools, text="Abrir carpeta de extensión", command=self.open_web_extension_folder).pack(side="left")
         ttk.Button(web_tools, text="Copiar código de vinculación", command=self.copy_web_pairing_code).pack(side="left", padx=(8, 0))
         ttk.Label(
             self.web_target_box,
+            text="La prueba verifica un viaje completo de ida y vuelta: aplicación → extensión → service worker → aplicación. Si el servidor está activo pero no llega la respuesta, el estado indicará que la extensión no respondió.",
+            style="Hint.TLabel", wraplength=820,
+        ).grid(row=6, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Label(
+            self.web_target_box,
             text="Para campos web comunes se usa la extensión. Google Docs usa teclado real y debe quedar al frente, con el cursor puesto. No funciona en páginas internas del navegador ni en campos protegidos.",
             style="Hint.TLabel", wraplength=820,
-        ).grid(row=5, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ).grid(row=7, column=0, columnspan=3, sticky="w", pady=(5, 0))
         self.web_target_box.columnconfigure(0, weight=3)
         self.web_target_box.columnconfigure(1, weight=3)
         self._update_target_panels()
@@ -1909,14 +1939,11 @@ class EscritorAutomatico:
             parent=self.root,
         ):
             return
-        if self.web_bridge is None:
-            try:
-                bridge = WebPageBridge()
-                bridge.start()
-                self.web_bridge = bridge
-            except Exception as exc:
-                messagebox.showerror("Puente web no disponible", str(exc), parent=self.root)
-                return
+        try:
+            self._ensure_web_bridge()
+        except Exception as exc:
+            messagebox.showerror("Puente web no disponible", str(exc), parent=self.root)
+            return
         client_id = tab.get("client_id", "")
         request_id = uuid.uuid4().hex
         selected_field = self.web_field_map.get(self.web_field_var.get()) or {}
@@ -2030,23 +2057,131 @@ class EscritorAutomatico:
         except Exception as exc:
             messagebox.showerror("No se pudo mostrar la vista previa", str(exc), parent=self.root)
 
-    def copy_web_pairing_code(self):
-        """Inicia el puente y copia el secreto de vinculación para pegarlo en la extensión."""
+    def _ensure_web_bridge(self) -> WebPageBridge:
+        """Crea e inicia el servidor local una sola vez y devuelve el puente activo."""
+        if not IS_SUPPORTED_OS:
+            raise RuntimeError("El puente web está disponible en Windows y Linux.")
         if self.web_bridge is None:
             bridge = WebPageBridge()
-            try:
-                bridge.start()
-            except Exception as exc:
-                messagebox.showerror("No se pudo iniciar el puente web", str(exc), parent=self.root)
-                return
+            bridge.start()
             self.web_bridge = bridge
+        return self.web_bridge
+
+    def connect_web_extension(self):
+        """Inicia el servidor local y abre el panel de conexión de la extensión."""
+        try:
+            bridge = self._ensure_web_bridge()
+        except Exception as exc:
+            self.web_connection_var.set(f"No se pudo iniciar el servidor local: {exc}")
+            messagebox.showerror("Puente web no disponible", str(exc), parent=self.root)
+            return
+
+        clients = bridge.clients()
+        if clients:
+            self.test_web_connection(silent=False, client_id=clients[0])
+            return
+
+        connection_url = f"chrome-extension://{WEB_EXTENSION_ID}/connection.html"
+        opened = False
+        try:
+            opened = bool(webbrowser.open(connection_url, new=2, autoraise=True))
+        except Exception:
+            opened = False
+        self.web_connection_var.set(
+            "Servidor local activo. Se solicitó abrir el panel de la extensión; pulsa Conectar en esa pestaña."
+            if opened else
+            "Servidor local activo, pero todavía no hay extensión conectada. Abre el panel de conexión de la extensión y pulsa Conectar."
+        )
+        self.status.set("Servidor WebSocket local escuchando en 127.0.0.1:8765; esperando autenticación de la extensión.")
+        messagebox.showinfo(
+            "Conexión con la extensión",
+            "El servidor local está activo.\n\n"
+            "1. En el panel de la extensión, pulsa Conectar y permite el acceso a la red local si el navegador lo solicita.\n"
+            "2. Si todavía no guardaste el código, pulsa 'Copiar código de vinculación' aquí y guárdalo en el popup de la extensión.\n"
+            "3. Deja abierta la pestaña de conexión.\n\n"
+            "Cuando la extensión se autentique, la aplicación ejecutará automáticamente una prueba de ida y vuelta.",
+            parent=self.root,
+        )
+
+    def test_web_connection(self, silent: bool = False, client_id: str | None = None):
+        """Comprueba el camino de ida y vuelta a través del service worker de la extensión."""
+        try:
+            bridge = self._ensure_web_bridge()
+        except Exception as exc:
+            self.web_connection_var.set(f"No se pudo iniciar el servidor local: {exc}")
+            if not silent:
+                messagebox.showerror("Puente web no disponible", str(exc), parent=self.root)
+            return False
+
+        if self._pending_web_diagnostic:
+            if not silent:
+                self.web_connection_var.set("Ya hay una prueba de conexión en curso; espera la respuesta.")
+            return False
+
+        clients = bridge.clients()
+        if client_id is None:
+            client_id = clients[0] if clients else None
+        if not client_id or client_id not in clients:
+            self._web_bridge_verified = False
+            self.web_connection_var.set(
+                "Servidor local activo, pero no hay una extensión autenticada. Abre el panel de conexión y pulsa Conectar."
+            )
+            self.status.set("No hay conexión autenticada con la extensión; el servidor local sí está iniciado.")
+            if not silent:
+                messagebox.showinfo(
+                    "Extensión todavía desconectada",
+                    "La aplicación está escuchando en 127.0.0.1:8765, pero no ha recibido una conexión autenticada.\n\n"
+                    "Abre el popup de la extensión, guarda el código de vinculación y pulsa 'Abrir panel de conexión'. Después pulsa Conectar en esa pestaña.",
+                    parent=self.root,
+                )
+            return False
+
+        diagnostic_id = uuid.uuid4().hex
+        started = time.monotonic()
+        if not bridge.send(client_id, {"type": "diagnostic_ping", "diagnostic_id": diagnostic_id}):
+            self._web_bridge_verified = False
+            self.web_connection_var.set("La conexión se cerró antes de enviar la prueba. Vuelve a conectar la extensión.")
+            return False
+
+        self._pending_web_diagnostic = {
+            "diagnostic_id": diagnostic_id,
+            "client_id": client_id,
+            "started": started,
+        }
+        self.web_connection_var.set("Canal autenticado. Comprobando respuesta de la extensión y su service worker…")
+        self.status.set("Prueba de comunicación en curso (ida y vuelta)…")
+        try:
+            self.root.after(6000, lambda current_id=diagnostic_id: self._web_diagnostic_timeout(current_id))
+        except tk.TclError:
+            pass
+        return True
+
+    def _web_diagnostic_timeout(self, diagnostic_id: str):
+        pending = self._pending_web_diagnostic
+        if self.closing or not pending or pending.get("diagnostic_id") != diagnostic_id:
+            return
+        self._pending_web_diagnostic = None
+        self._web_bridge_verified = False
+        self.web_connection_var.set(
+            "El WebSocket y la autenticación se establecieron, pero la extensión no respondió a la prueba. "
+            "Recarga la extensión, abre de nuevo el panel de conexión y vuelve a probar."
+        )
+        self.status.set("Diagnóstico incompleto: no regresó el mensaje desde el service worker de la extensión.")
+
+    def copy_web_pairing_code(self):
+        """Inicia el puente y copia el secreto de vinculación para pegarlo en la extensión."""
+        try:
+            self._ensure_web_bridge()
+        except Exception as exc:
+            messagebox.showerror("No se pudo iniciar el puente web", str(exc), parent=self.root)
+            return
         try:
             self.root.clipboard_clear()
             self.root.clipboard_append(self.web_bridge.pairing_code)
             self.root.update_idletasks()
             messagebox.showinfo(
                 "Código de vinculación copiado",
-                "Pega este código en el popup de la extensión y pulsa Guardar. "
+                "Pega este código en el popup de la extensión y pulsa Guardar. Después abre el panel de conexión, pulsa Conectar y deja esa pestaña abierta mientras uses el modo web. "
                 "El código es una credencial local: no lo publiques ni lo compartas.\n\n"
                 + self.web_bridge.pairing_code,
                 parent=self.root,
@@ -2077,17 +2212,14 @@ class EscritorAutomatico:
         if not IS_SUPPORTED_OS:
             messagebox.showinfo("Sistema no compatible", "El puente web está disponible en Windows y Linux.", parent=self.root)
             return
-        if self.web_bridge is None:
-            bridge = WebPageBridge()
-            try:
-                bridge.start()
-            except Exception as exc:
-                messagebox.showerror("No se pudo iniciar el puente web", str(exc), parent=self.root)
-                return
-            self.web_bridge = bridge
+        try:
+            self._ensure_web_bridge()
+        except Exception as exc:
+            messagebox.showerror("No se pudo iniciar el puente web", str(exc), parent=self.root)
+            return
         clients = self.web_bridge.clients()
         if not clients:
-            self.web_connection_var.set("Servidor local listo; esperando la extensión de Chrome/Edge/Brave. Instálala, actívala y vuelve a pulsar Actualizar páginas.")
+            self.web_connection_var.set("Servidor local activo, pero no hay una extensión autenticada. Pulsa 'Conectar con extensión' o abre el panel y pulsa Conectar.")
             self.status.set("Esperando a la extensión del navegador en 127.0.0.1:8765.")
             messagebox.showinfo(
                 "Conecta la extensión del navegador",
@@ -2096,7 +2228,8 @@ class EscritorAutomatico:
                 "3. Pulsa 'Cargar descomprimida' y selecciona la carpeta web_extension incluida en el ZIP.\n"
                 "4. Pulsa 'Copiar código de vinculación' en Escritor Automático y pégalo en el popup de la extensión.\n"
                 "5. En el popup, pulsa 'Permitir acceso a páginas' y acepta el permiso de sitios que vayas a usar.\n"
-                "6. Vuelve aquí y pulsa 'Actualizar páginas'.\n\n"
+                "6. En el popup, pulsa 'Abrir panel de conexión'; en la pestaña nueva, pulsa 'Conectar' y déjala abierta.\n"
+                "7. Vuelve aquí y pulsa 'Actualizar páginas'.\n\n"
                 "La extensión no recibe acceso a páginas hasta que tú lo autorizas desde su popup.",
                 parent=self.root,
             )
@@ -2167,9 +2300,15 @@ class EscritorAutomatico:
             self.web_connection_var.set(event.get("error", "Falló el puente web."))
             return
         if kind == "connected":
-            self.web_connection_var.set("Extensión detectada; identificando navegador…")
+            self._web_bridge_verified = False
+            self.web_connection_var.set("Extensión autenticada; ejecutando prueba de ida y vuelta…")
+            self.test_web_connection(silent=True, client_id=client_id)
             return
         if kind == "disconnected":
+            pending = self._pending_web_diagnostic
+            if pending and pending.get("client_id") == client_id:
+                self._pending_web_diagnostic = None
+            self._web_bridge_verified = False
             self.web_client_browsers.pop(client_id, None)
             self.web_tab_map = {label: tab for label, tab in self.web_tab_map.items() if tab.get("client_id") != client_id}
             self._rebuild_web_tab_combo()
@@ -2185,6 +2324,19 @@ class EscritorAutomatico:
             return
         data = event.get("data") or {}
         message_type = data.get("type")
+        if message_type == "diagnostic_pong":
+            pending = self._pending_web_diagnostic
+            if pending and pending.get("client_id") == client_id and data.get("diagnostic_id") == pending.get("diagnostic_id"):
+                elapsed_ms = max(0, round((time.monotonic() - pending["started"]) * 1000))
+                browser = self.web_client_browsers.get(client_id, "navegador Chromium")
+                extension_version = str(data.get("extension_version") or "desconocida")
+                self._pending_web_diagnostic = None
+                self._web_bridge_verified = True
+                self.web_connection_var.set(
+                    f"Conexión verificada · {browser} · extensión {extension_version} · respuesta {elapsed_ms} ms."
+                )
+                self.status.set("La aplicación y la extensión se comunican correctamente en ambos sentidos.")
+            return
         if message_type == "hello":
             browser = str(data.get("browser") or "Chromium")
             self.web_client_browsers[client_id] = browser
@@ -2214,7 +2366,8 @@ class EscritorAutomatico:
             self._rebuild_web_tab_combo()
             page_count = len(pages)
             editable_count = sum(len(p.get("fields") or []) for p in pages)
-            self.web_connection_var.set(f"{browser}: {page_count} páginas detectadas · {editable_count} campos editables compatibles.")
+            prefix = "Conexión verificada · " if self._web_bridge_verified else ""
+            self.web_connection_var.set(f"{prefix}{browser}: {page_count} páginas detectadas · {editable_count} campos editables compatibles.")
             self.status.set(f"Búsqueda web terminada: {page_count} páginas y {editable_count} campos compatibles.")
         elif message_type == "preview_image":
             if getattr(self, "_pending_preview_request", None) == data.get("request_id"):
@@ -2227,7 +2380,8 @@ class EscritorAutomatico:
                 self.web_connection_var.set(str(data.get("error", "No se pudo obtener la vista previa.")))
                 messagebox.showwarning("Vista previa no disponible", self.web_connection_var.get(), parent=self.root)
         elif message_type == "tabs_error":
-            self.web_connection_var.set(f"No se pudieron consultar todas las páginas: {data.get('error', 'error desconocido')}")
+            prefix = "Conexión verificada; " if self._web_bridge_verified else ""
+            self.web_connection_var.set(f"{prefix}no se pudieron consultar las páginas: {data.get('error', 'error desconocido')}")
         elif message_type == "job_accepted":
             if data.get("job_id") == self.web_job_id:
                 self.status.set("La página web aceptó la escritura. Escribiendo letra por letra en segundo plano… F8 detiene · F9 pausa.")

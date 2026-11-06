@@ -55,3 +55,17 @@ SEGURIDAD v1.0.0
 - La extensión solo se comunica con ws://127.0.0.1:8765; la aplicación Python comprueba el origen de esta extensión antes de aceptar el WebSocket.
 - Los permisos tabs, scripting, webNavigation y acceso a páginas HTTP/HTTPS son amplios. Son necesarios para explorar varias pestañas y sus iframes, pero implican que debes confiar en esta extensión. No la instales si no confías en el código de la carpeta.
 - No utiliza permisos de cookies, historial, descargas, webcam, micrófono ni acceso al portapapeles.
+
+
+CONEXIÓN EN VERSIONES RECIENTES DE CHROMIUM
+
+La conexión WebSocket se mantiene desde connection.html, una pestaña de la propia extensión, y no desde el service worker. Esto permite iniciar el acceso a 127.0.0.1 desde un documento con una acción explícita del usuario y evita que el service worker intente abrir por sí solo la conexión de bucle invertido.
+
+Después de guardar el código y conceder los permisos, abre el popup de la extensión, pulsa «Abrir panel de conexión», y en la pestaña que se abre pulsa «Conectar». Mantén esa pestaña abierta mientras utilices la escritura web. Si la cierras, la aplicación perderá la conexión hasta que vuelvas a abrirla y pulses «Conectar».
+
+
+Diagnóstico desde la aplicación (v1.0.3):
+- En Escritor Automático, pulsa "Conectar con extensión" para iniciar el servidor local y abrir el panel cuando el navegador lo permita.
+- En la pestaña de conexión pulsa "Conectar" y deja esa pestaña abierta.
+- La aplicación ejecutará automáticamente una prueba de ida y vuelta. También puedes repetirla con "Probar conexión".
+- Un resultado verificado mostrará el navegador, versión de la extensión y tiempo de respuesta.

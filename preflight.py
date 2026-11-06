@@ -30,7 +30,10 @@ REQUIRED_FILES = (
     "web_extension/content.js",
     "web_extension/popup.html",
     "web_extension/popup.js",
+    "web_extension/connection.html",
+    "web_extension/connection.js",
     "web_extension/LEEME.txt",
+    "tests/test_extension_connection_architecture.py",
 )
 
 
@@ -88,9 +91,21 @@ def main() -> int:
     if f'WEB_EXTENSION_ID = "{EXPECTED_EXTENSION_ID}"' not in source:
         fail("El ID de la extensión en Python no coincide con el ID esperado.")
     worker_source = (ROOT / "web_extension/service_worker.js").read_text(encoding="utf-8")
-    if "ws://127.0.0.1:8765" not in worker_source:
-        fail("No se encontró la dirección local WebSocket esperada en la extensión.")
-    print(f"  OK: manifiesto válido e ID de extensión coherente ({extension_id})")
+    connection_source = (ROOT / "web_extension/connection.js").read_text(encoding="utf-8")
+    if "ws://127.0.0.1:8765" not in connection_source:
+        fail("No se encontró la dirección local WebSocket esperada en el panel de conexión.")
+    if "new WebSocket(" in worker_source:
+        fail("El service worker no debe abrir el WebSocket local; debe hacerlo connection.js.")
+    if '"bridge_incoming"' not in worker_source or '"bridge_outgoing"' not in worker_source:
+        fail("No se encontró el canal de mensajes entre el panel y el service worker.")
+    if 'message.type === "diagnostic_ping"' not in worker_source or 'type: "diagnostic_pong"' not in worker_source:
+        fail("Falta la respuesta de diagnóstico de ida y vuelta en el service worker.")
+    if '"type": "diagnostic_ping"' not in source or '"diagnostic_pong"' not in source:
+        fail("La aplicación no incluye la comprobación de conexión de ida y vuelta.")
+    extension_version = manifest.get("version")
+    if not isinstance(extension_version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", extension_version):
+        fail("La extensión debe declarar una versión válida en formato X.Y.Z.")
+    print(f"  OK: manifiesto válido, versión de extensión e ID coherentes ({extension_id})")
 
     requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
     for package, version in {
@@ -133,6 +148,8 @@ def main() -> int:
     print("  OK: rutas absolutas de recursos para PyInstaller")
 
     iss = (ROOT / "installer.iss").read_text(encoding="utf-8")
+    if not re.search(r'(?m)^\s*#define\s+AppVersion\s+"1\.0\.3"\s*$', iss):
+        fail("La versión predeterminada de installer.iss debe ser 1.0.3.")
     # Inno Setup 6 no define UninstallDisplayVersion. AppVersion es el ajuste
     # compatible que se muestra como versión en la entrada de aplicaciones instaladas.
     if re.search(r"(?im)^\s*UninstallDisplayVersion\s*=", iss):
